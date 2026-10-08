@@ -1,0 +1,284 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar - follows the active theme */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--c-canvas));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-scroll-thumb));
+  border-radius: 6px;
+  border: 2px solid rgb(var(--c-canvas));
+  transition: background 150ms ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--c-scroll-thumb-hover));
+}
+::-webkit-scrollbar-corner {
+  background: rgb(var(--c-canvas));
+}
+* {
+  scrollbar-color: rgb(var(--c-scroll-thumb)) rgb(var(--c-canvas));
+  scrollbar-width: thin;
+}
+::selection {
+  background: rgb(var(--c-accent) / 0.35);
+  color: rgb(var(--c-ink-strong));
+}
+
+/* Dense strips (the sequence bar): a slim bar that doesn't eat the row's height */
+.argus-thin-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.argus-thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.argus-thin-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  background-clip: content-box;
+  border-radius: 3px;
+}
+
+/* Menus that scroll (the composer's + menu): a slim bar on a clear track, without the arrow buttons,
+   and scrolling stays inside. Chrome and Safari draw it from the ::-webkit-scrollbar rules, which they
+   only use while scrollbar-width and scrollbar-color are auto; Firefox takes the standard properties. */
+.argus-menu-scroll { overscroll-behavior: contain; }
+@supports selector(::-webkit-scrollbar) {
+  .argus-menu-scroll { scrollbar-width: auto; scrollbar-color: auto; }
+  .argus-menu-scroll::-webkit-scrollbar { width: 10px; }
+  .argus-menu-scroll::-webkit-scrollbar-track { background: transparent; }
+  .argus-menu-scroll::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-scroll-thumb));
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+  }
+  .argus-menu-scroll::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--c-scroll-thumb-hover)); }
+}
+@supports not selector(::-webkit-scrollbar) {
+  .argus-menu-scroll { scrollbar-width: thin; scrollbar-color: rgb(var(--c-scroll-thumb)) transparent; }
+}
+
+/* Keyboard focus: one visible ring everywhere, and only for keyboard users */
+:focus-visible {
+  outline: 2px solid rgb(var(--c-focus));
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+/* ...except inside a menu, where the focused row is lit, as menus show it */
+[data-composer-menu-panel] [role^="menuitem"]:focus-visible {
+  outline: none;
+  border-radius: 0.5rem;
+  background-color: rgb(var(--c-chip) / 0.7);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-line-2));
+}
+
+/* The workspace owns the window: no page-level scrolling or rubber-banding */
+html, body, #root {
+  height: 100%;
+  overscroll-behavior: none;
+}
+/* ...the window it is actually given: on phones 100vh reaches behind the browser's own toolbars, which
+   would cover the chatbox; 100dvh follows them as they slide in and out */
+.argus-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* In a phone's sheet, lists run their full length: the sheet itself scrolls, one scroll at a time */
+[data-phone-sheet] [data-overlay-suggestions],
+[data-phone-sheet] [data-cofold-chains] {
+  max-height: none;
+}
+
+/* ...and while it is up, the canvas keeps its little height for the structure, not a legend */
+[data-sheet-open] .argus-legend {
+  display: none;
+}
+
+/* Touch: text fields at 16px at least, below which iOS zooms the whole page in when one is tapped */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* --- Chat sizes ---
+   Set on the chat column and read through the chat-* tokens in tailwind.config.js, so the chat's
+   "Text and spacing" choice resizes it all at once. Comfortable is page-sized; Compact is a notch
+   smaller, as side-panel chats are. Gaps between turns stay the same in both: they keep it calm. */
+
+[data-chat-column] {
+  --chat-text: 14px;      /* Answers, your messages, the chatbox */
+  --chat-leading: 1.625;
+  --chat-title: 15px;     /* An answer's title */
+  --chat-aside: 13px;     /* Quiz answers, the loader's step, notices */
+  --chat-meta: 12.5px;    /* "Marked in 3D" rows, what a request changed */
+  --chat-row: 28px;       /* List rows */
+  --chat-x: 14px;         /* Inside your message bubbles */
+  --chat-y: 8px;
+  --chat-option-y: 10px;  /* Quiz answers */
+  --chat-button: 32px;    /* The chatbox's buttons */
+  --chat-input: 44px;     /* The chatbox's first line */
+  --chat-input-top: 14px;
+}
+[data-chat-column][data-density='compact'] {
+  --chat-text: 13px;
+  --chat-leading: 1.55;
+  --chat-title: 14px;
+  --chat-aside: 12.5px;
+  --chat-meta: 12px;
+  --chat-row: 26px;
+  --chat-x: 12px;
+  --chat-y: 6px;
+  --chat-option-y: 7px;
+  --chat-button: 28px;
+  --chat-input: 40px;
+  --chat-input-top: 12px;
+}
+/* On a phone the chat is the whole screen and is read at arm's length: page-sized text, and rows and
+   buttons a finger can hit, whichever density is chosen (keep in step with useMedia.ts PHONE_QUERY) */
+@media (max-width: 767px), (max-height: 520px) and (pointer: coarse) {
+  [data-chat-column],
+  [data-chat-column][data-density='compact'] {
+    --chat-text: 15px;
+    --chat-leading: 1.6;
+    --chat-title: 16px;
+    --chat-aside: 14px;
+    --chat-meta: 13.5px;
+    --chat-row: 36px;
+    --chat-x: 14px;
+    --chat-y: 9px;
+    --chat-option-y: 11px;
+    --chat-button: 36px;
+    --chat-input: 44px;
+    --chat-input-top: 12px;
+  }
+}
+
+/* --- Sliders ---
+   One look for every range input: a thin track filled up to the value (--fill, set inline) in the
+   accent colour, and a knob ringed in the canvas colour, so it reads on dark and light themes alike. */
+
+.argus-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+.argus-range:focus { outline: none; }
+.argus-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, rgb(var(--c-accent)) var(--fill, 50%), rgb(var(--c-line-2)) var(--fill, 50%));
+}
+.argus-range::-moz-range-track { height: 4px; border-radius: 9999px; background: rgb(var(--c-line-2)); }
+.argus-range::-moz-range-progress { height: 4px; border-radius: 9999px; background: rgb(var(--c-accent)); }
+.argus-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: rgb(var(--c-ink-strong));
+  border: 3px solid rgb(var(--c-canvas));
+  box-shadow: 0 0 0 1px rgb(var(--c-line-2)), 0 1px 3px rgb(var(--c-shadow) / 0.35);
+  transition: transform 120ms ease;
+}
+.argus-range::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgb(var(--c-ink-strong));
+  border: 3px solid rgb(var(--c-canvas));
+  box-shadow: 0 0 0 1px rgb(var(--c-line-2));
+}
+.argus-range:hover::-webkit-slider-thumb { transform: scale(1.12); }
+.argus-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1px rgb(var(--c-line-2)), 0 0 0 4px rgb(var(--c-focus) / 0.45); }
+.argus-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 1px rgb(var(--c-line-2)), 0 0 0 4px rgb(var(--c-focus) / 0.45); }
+
+/* --- Chat motion --- */
+
+/* A status line that shimmers while the AI works (the text stays readable, the light moves over it) */
+.argus-shimmer {
+  background: linear-gradient(90deg,
+    rgb(var(--c-ink-muted)) 0%, rgb(var(--c-ink-muted)) 40%,
+    rgb(var(--c-ink-strong)) 50%,
+    rgb(var(--c-ink-muted)) 60%, rgb(var(--c-ink-muted)) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: argus-shimmer 2.4s linear infinite;
+}
+@keyframes argus-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* New messages rise into place */
+.argus-rise { animation: argus-rise 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes argus-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Indeterminate progress: a soft strip that slides along (long tool runs) */
+.argus-progress-strip { animation: argus-progress 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+@keyframes argus-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
+}
+
+/* Backgrounds that drift very slowly */
+.argus-drift { animation: argus-drift 90s linear infinite; }
+@keyframes argus-drift {
+  from { background-position: 0 0; }
+  to { background-position: 240px 138px; }
+}
+/* The lattice moves by exactly one tile per loop, so the repeat never shows a seam */
+.argus-lattice { animation: argus-lattice 70s linear infinite; }
+@keyframes argus-lattice {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--tile-w), var(--tile-h), 0); }
+}
+.argus-aurora-a { animation: argus-aurora-a 22s ease-in-out infinite alternate; }
+.argus-aurora-b { animation: argus-aurora-b 28s ease-in-out infinite alternate; }
+@keyframes argus-aurora-a {
+  from { transform: translate3d(-12%, 0, 0) scale(1); }
+  to { transform: translate3d(14%, -8%, 0) scale(1.15); }
+}
+@keyframes argus-aurora-b {
+  from { transform: translate3d(10%, 4%, 0) scale(1.1); }
+  to { transform: translate3d(-14%, -6%, 0) scale(0.95); }
+}
+
+/* The step a citation points to: a brief wash of colour */
+.argus-flash { animation: argus-flash 1.6s ease-out both; }
+@keyframes argus-flash {
+  from { background-color: rgb(var(--c-ink-strong) / 0.12); }
+  to { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-shimmer { animation: none; color: rgb(var(--c-ink-muted)); background: none; }
+  .argus-rise, .argus-progress-strip, .argus-drift, .argus-lattice, .argus-aurora-a, .argus-aurora-b, .argus-flash { animation: none; }
+}

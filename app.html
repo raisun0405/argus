@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- interactive-widget: on Android the keyboard shrinks the page, so the chatbox stays above it -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+    <title>Argus</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 9 9 23h14Z' fill='none' stroke='%23C43036' stroke-width='2.5' stroke-linejoin='round'/%3E%3Cg fill='%23C43036'%3E%3Ccircle cx='16' cy='9' r='4'/%3E%3Ccircle cx='9' cy='23' r='4'/%3E%3Ccircle cx='23' cy='23' r='4'/%3E%3C/g%3E%3C/svg%3E" />
+    <script>
+      // Restore the colour theme before first paint; a ?theme= link wins over the saved
+      // choice (initTheme in useTheme.ts then validates and saves it). The palettes are
+      // inlined from themes.ts at build time (vite.config.ts); unknown names fall back to :root.
+      try {
+        var urlTheme = new URLSearchParams(location.search).get('theme');
+        var savedTheme = /^[a-z]+$/.test(urlTheme || '') ? urlTheme : localStorage.getItem('argus-theme');
+        if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+      } catch (e) {}
+    </script>
+    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Styles: index.css (Tailwind, compiled by Vite via PostCSS; config in tailwind.config.js) -->
+  </head>
+  <body class="bg-canvas text-ink font-sans antialiased overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

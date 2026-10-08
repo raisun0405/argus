@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>
+  // A share link from before the app moved to /app: #view=… never reaches a server, so it is sent on here
+  if (location.hash.startsWith('#view=')) location.replace('/app' + location.search + location.hash);
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus — Molecular co-scientist</title>
+<meta name="description" content="Ask any protein in plain English. Argus finds the structure, shows it in 3D, and investigates with real tools.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 9 9 23h14Z' fill='none' stroke='%23C43036' stroke-width='2.5' stroke-linejoin='round'/%3E%3Cg fill='%23C43036'%3E%3Ccircle cx='16' cy='9' r='4'/%3E%3Ccircle cx='9' cy='23' r='4'/%3E%3Ccircle cx='23' cy='23' r='4'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/landing/landing.css">
+</head>
+<body>
+  <header class="nav" data-nav>
+    <a class="logo" href="#top" aria-label="Argus, back to the top">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 9 9 23h14Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><g fill="currentColor"><circle cx="16" cy="9" r="4"/><circle cx="9" cy="23" r="4"/><circle cx="23" cy="23" r="4"/></g></svg>
+      Argus
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#ask">Ask</a>
+      <a href="#tools">Tools</a>
+      <a href="#overlay">Overlay</a>
+      <a href="#investigate">Investigate</a>
+      <a href="#science">Science</a>
+    </nav>
+    <span class="metal-host" data-metal="0.85"><a class="btn btn-metal btn-metal-sm" href="/app"><span>Open Argus</span></a></span>
+  </header>
+
+  <div class="stage" aria-hidden="true"><canvas class="stage-gl" data-stage-gl></canvas><div class="stage-labels" data-stage-labels></div></div>
+
+  <main id="top">
+    <section class="hero" data-hero>
+      <div class="hero-bg" aria-hidden="true"><div class="lift"></div><div class="grain"></div><div class="vignette"></div><div class="fade"></div></div>
+      <div class="wrap hero-grid">
+        <div>
+          <p class="roles fade-up" style="--d:.05s"><span><b>01</b> Ask</span><span><b>02</b> See it in 3D</span><span><b>03</b> Investigate</span></p>
+          <h1 aria-label="Ask any protein. See every side.">
+            <span class="line" aria-hidden="true"><span class="word" style="--i:0">Ask</span> <span class="word" style="--i:1">any</span> <span class="word" style="--i:2">protein.</span></span>
+            <span class="line" aria-hidden="true"><span class="word" style="--i:3">See</span> <span class="word" style="--i:4">every</span> <span class="word" style="--i:5">side.</span></span>
+          </h1>
+          <p class="lead fade-up" style="--d:.85s">Argus finds the right structure, shows it in 3D and explains it in plain English. Then it digs deeper with real tools, and shows you the evidence instead of just an answer.</p>
+          <div class="cta fade-up" style="--d:1s">
+            <!-- The way in: a dark pill inside a ring of liquid metal (vendor/metal-button.js), a plain link beside it -->
+            <span class="metal-host" data-metal><a class="btn btn-metal" href="/app"><span>Open Argus</span></a></span>
+            <a class="btn btn-link" href="#ask"><span>See how it works</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></a>
+          </div>
+          <p class="meta fade-up" style="--d:1.15s"><span>Free</span><span>No sign-up</span><span>Runs in your browser</span></p>
+        </div>
+        <figure class="fade-up" style="--d:.4s; margin:0">
+          <div class="viewer" data-viewer data-slot="hero" role="img" aria-label="A 3D structure turning slowly: the open and closed forms of adenylate kinase, overlaid">
+            <div class="viewer-fallback"></div>
+          </div>
+          <figcaption class="caption">
+            <span class="scale" aria-hidden="true"><i></i><b><span>0</span><span>4+ Å</span></b></span>
+            <span>Adenylate kinase, open and closed, overlaid in Argus. Blue held still; red moved, as the lid swings shut by up to 25&nbsp;Å. The white line is the closed form. Drag to turn it.</span>
+          </figcaption>
+        </figure>
+      </div>
+      <div class="scroll-cue" aria-hidden="true"><i></i>Scroll to explore</div>
+      <div class="hero-meta"><span>On screen</span>4AKE + 1AKE · Overlay</div>
+    </section>
+
+    <div class="marquee reveal" aria-label="What Argus does">
+      <div class="track">
+        <span>200,000+ PDB structures</span><span>Grounded, checked answers</span><span>Investigate mode</span><span>Variant Lens</span><span>Pocket Radar</span><span>Ligand interactions</span><span>Overlay</span><span>Interaction partners</span><span>Boltz-2 co-folding</span><span>Foldseek search</span><span>AlphaFold + AlphaFill</span><span>ESMFold in seconds</span><span>No accounts</span>
+        <span aria-hidden="true">200,000+ PDB structures</span><span aria-hidden="true">Grounded, checked answers</span><span aria-hidden="true">Investigate mode</span><span aria-hidden="true">Variant Lens</span><span aria-hidden="true">Pocket Radar</span><span aria-hidden="true">Ligand interactions</span><span aria-hidden="true">Overlay</span><span aria-hidden="true">Interaction partners</span><span aria-hidden="true">Boltz-2 co-folding</span><span aria-hidden="true">Foldseek search</span><span aria-hidden="true">AlphaFold + AlphaFill</span><span aria-hidden="true">ESMFold in seconds</span><span aria-hidden="true">No accounts</span>
+      </div>
+    </div>
+
+    <!-- Story 1: asking -->
+    <section class="story" id="ask" style="--steps:4" data-story="ask">
+      <div class="story-pin">
+        <div class="story-panel">
+          <div class="steps-text">
+            <div class="step-text on" data-step="0"><p class="label"><b>01</b><i></i>Ask <em>01 / 04</em></p><h3>Ask in plain English.</h3><p>No PDB codes, no selection syntax. Argus works out which structure answers the question and opens it whole.</p></div>
+            <div class="step-text" data-step="1"><p class="label"><b>01</b><i></i>Answer <em>02 / 04</em></p><h3>The answer marks the structure.</h3><p>Every part it talks about is marked by its role, and the rest fades just enough for them to stand out.</p></div>
+            <div class="step-text" data-step="2"><p class="label"><b>01</b><i></i>Zoom <em>03 / 04</em></p><h3>Click a mark to fly to it.</h3><p>Asp25 of chain A: one of the two catalytic aspartates, and the pair the drug was designed to grip.</p></div>
+            <div class="step-text" data-step="3"><p class="label"><b>01</b><i></i>Tour <em>04 / 04</em></p><h3>Tours that move the camera.</h3><p>The flaps, Ile50 of each chain, fold down over the drug. Tours go site to site with subtitles, and a quiz's right answer flies you there.</p></div>
+          </div>
+          <div class="story-card">
+            <!-- The app's chat column, as it draws it: header, bubbles, the answer, the composer -->
+            <div class="chat">
+              <div class="chat-head"><b>Argus</b><span>Molecular co-scientist</span></div>
+              <div class="chat-body">
+                <div class="msg-user"><p>Show me HIV protease with its drug</p></div>
+                <div class="msg" data-show="0"><span class="orb is-moving"></span><p class="msg-loading">Finding the structure…</p></div>
+                <div class="msg" data-show="1 2 3">
+                  <span class="orb"></span>
+                  <div class="msg-body">
+                    <p class="msg-k">Answer</p>
+                    <div class="msg-title"><h4>HIV-1 protease with indinavir (MK1)</h4><span class="msg-tag">1HSG</span></div>
+                    <p class="msg-text" data-show="1">HIV-1 protease is a symmetric homodimer: each monomer brings its catalytic Asp25 to one shared active site. In 1HSG the drug indinavir (MK1) fills that site, clamped between the catalytic aspartates and the flexible flaps (Ile50).</p>
+                    <div class="marked3d">
+                      <p class="msg-k">Marked in 3D<span>2</span></p>
+                      <ul>
+                        <li data-on="2"><i></i><span>Catalytic Asp25</span><em>A 25 · B 25</em><svg class="cursor" data-show="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l13 8.5-6 1.4 3.6 6.6-2.6 1.4-3.6-6.6L5 18z"/></svg></li>
+                        <li><i></i><span>Flap Ile50</span><em>A 50 · B 50</em></li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                <div class="tour-pill" data-show="3"><span class="orb is-moving"></span>Tour playing · step 3 of 4</div>
+              </div>
+              <div class="composer">
+                <span class="beam" data-show="0" aria-hidden="true"></span>
+                <div class="composer-box">
+                  <p class="composer-input">Ask Argus about a protein, or paste a sequence…</p>
+                  <div class="composer-row">
+                    <span class="c-plus" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                    <span class="c-model">Nemotron 3 Super · Nebius</span>
+                    <span class="c-send" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <ol class="progress" aria-hidden="true"><li class="on"><i></i>Ask</li><li><i></i>Answer</li><li><i></i>Zoom</li><li><i></i>Tour</li></ol>
+        </div>
+        <div class="story-stage" data-slot="ask" role="img" aria-label="HIV-1 protease with indinavir in 3D, following the story">
+          <!-- A tour's narration, over the bottom of the structure, as the app shows it -->
+          <p class="stage-subtitle" data-show="3">The flaps, Ile50 of each chain, fold down over the drug and hold it in.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Story 2: three of the tools -->
+    <section class="story" id="tools" style="--steps:3" data-story="tools">
+      <div class="story-pin">
+        <div class="story-panel">
+          <div class="steps-text">
+            <div class="step-text on" data-step="0"><p class="label"><b>02</b><i></i>Pocket Radar <em>01 / 03</em></p><h3>Where could a drug sit?</h3><p>Predicted binding pockets, each in its own colour, ranked by probability. In 1HSG the top pocket is the one indinavir fills.</p></div>
+            <div class="step-text" data-step="1"><p class="label"><b>02</b><i></i>Interactions <em>02 / 03</em></p><h3>What holds it in place.</h3><p>Hydrogen bonds, salt bridges, water bridges and more, worked out in your browser from the coordinates with PLIP's criteria.</p></div>
+            <div class="step-text" data-step="2"><p class="label"><b>02</b><i></i>Co-fold <em>03 / 03</em></p><h3>Name a molecule. See how it binds.</h3><p>A drug name, a ligand code or a SMILES string: Boltz-2 predicts the pose, its confidence and how strongly it might bind, steered into the pocket you pick.</p></div>
+          </div>
+          <div class="story-card">
+            <div class="tcard on" data-step="0">
+              <div class="tcard-head"><b>Pocket Radar</b><span>P2Rank · 1HSG</span></div>
+              <div data-pockets></div>
+              <p class="tcard-foot">Pick a pocket to see the residues that line it, or co-fold a molecule into it.</p>
+            </div>
+            <div class="tcard" data-step="1">
+              <div class="tcard-head"><b>Interactions · indinavir</b><span data-contact-summary></span></div>
+              <ul class="contacts" data-contacts></ul>
+              <p class="tcard-foot">From the app's own Interactions code, run on the deposited coordinates.</p>
+            </div>
+            <div class="tcard" data-step="2">
+              <div class="tcard-head"><b>Co-fold · indinavir</b><span>Boltz-2 · 14 s</span></div>
+              <div class="fields three"><span><i>Pose</i>ipTM 0.98</span><span><i>Affinity</i>≈ 14 nM</span><span><i>Binder</i>93%</span></div>
+              <p class="crystal"><b>Crystal pose: 0.2 Å away</b> · 24 of 26 contacts shared</p>
+              <ul class="facts">
+                <li><span class="dim">Caffeine · HIV-1 protease</span><b>Every contact inside the pocket</b><p>Left free it drifted to the surface; aimed at a predicted pocket, it landed inside.</p></li>
+                <li><span class="dim">Aspirin · trypsin</span><b>ipTM 0.74 → 0.96</b><p>From a loose pose to a deep one, once steered.</p></li>
+              </ul>
+              <p class="tcard-foot">One real run in the app. Predicted affinities are for comparing molecules; tenfold errors are common.</p>
+            </div>
+          </div>
+          <ol class="progress" aria-hidden="true"><li class="on"><i></i>Pockets</li><li><i></i>Interactions</li><li><i></i>Co-fold</li></ol>
+        </div>
+        <div class="story-stage" data-slot="tools" role="img" aria-label="HIV-1 protease with indinavir in 3D: its pocket, its hydrogen bonds and the drug docking"></div>
+      </div>
+    </section>
+
+    <!-- Story 3: Overlay, where scrolling swings the lid shut -->
+    <section class="story" id="overlay" style="--steps:2" data-story="overlay">
+      <div class="story-pin">
+        <div class="story-panel">
+          <div class="steps-text">
+            <div class="step-text on" data-step="0"><p class="label"><b>03</b><i></i>Overlay <em>01 / 02</em></p><h3>Lay one form over another.</h3><p>Open and closed, with and without a drug, or its AlphaFold model. Argus pairs the residues, fits the parts that held still and colours each one by how far it moved. Here, adenylate kinase: open, with the closed form as a line.</p></div>
+            <div class="step-text" data-step="1"><p class="label"><b>03</b><i></i>What moved <em>02 / 02</em></p><h3>See what moved.</h3><p>Keep scrolling and the lid swings shut by up to 24.7&nbsp;Å, closing around Ap5A, the inhibitor bound in the closed form. 112 of the 214 residues stay within 2&nbsp;Å.</p></div>
+          </div>
+          <div class="story-card">
+            <div class="tcard on" data-morph>
+              <div class="tcard-head"><b>Overlay · 4AKE + 1AKE</b><span>Adenylate kinase</span></div>
+              <ul class="moves">
+                <li><div class="moves-row"><b>Lid</b><span class="dim">residues 122–159</span><em>up to 24.7 Å</em></div><div class="bar"><i style="--w:100%"></i></div></li>
+                <li><div class="moves-row"><b>NMP domain</b><span class="dim">residues 30–59</span><em>up to 18.0 Å</em></div><div class="bar"><i style="--w:73%;--d:.12s"></i></div></li>
+                <li><div class="moves-row"><b>Core</b><span class="dim">the part it's fitted on</span><em>112 of 214 within 2 Å</em></div></li>
+              </ul>
+              <div class="legend"><span class="dim">Coloured by how far each residue moved</span><i></i><span class="legend-ends"><span>0 Å</span><span>2 Å</span><span>4+ Å</span></span></div>
+              <div class="scrub" aria-hidden="true"><span>Open · 4AKE</span><span class="scrub-track"><i></i></span><span>Closed · 1AKE</span></div>
+              <p class="tcard-foot">Paired by sequence and fitted on what stayed put, then checked against RCSB's alignment.</p>
+            </div>
+          </div>
+          <ol class="progress" aria-hidden="true"><li class="on"><i></i>Lay over</li><li><i></i>What moved</li></ol>
+        </div>
+        <div class="story-stage" data-slot="overlay" role="img" aria-label="Adenylate kinase in 3D: the open form, coloured by how far each residue moves, swinging its lid shut onto the closed form"></div>
+      </div>
+    </section>
+
+    <section class="section center" id="workspace">
+      <div class="wrap">
+        <p class="label reveal"><b>04</b><i></i><span data-scramble>Workspace</span></p>
+        <h2 class="reveal" style="--i:1">One screen. Everything in reach.</h2>
+        <p class="body reveal" style="--i:2">The chat on the left, the structure edge to edge with its sequence above, and one inspector on the right. Both side panels resize or fold away, and on a phone the chat and the structure become two tabs.</p>
+        <div class="shot-wrap reveal" style="--i:3">
+          <div class="shot-glow" aria-hidden="true"></div>
+          <div class="shot">
+            <div class="shot-bar"><span data-app-address>/app</span></div>
+            <img src="/landing/app.jpg" width="1440" height="900" alt="Argus showing HIV-1 protease bound to the inhibitor XK263: the chat on the left, the structure in 3D coloured by predicted pockets, and the inspector on the right" loading="lazy">
+          </div>
+        </div>
+        <ol class="parts">
+          <li class="reveal" style="--i:0"><span>01</span><b>Chat</b><p>Answers, marks, tours and quizzes. Type a request and it runs.</p></li>
+          <li class="reveal" style="--i:1"><span>02</span><b>Sequence</b><p>Every residue of every chain. Select here or in 3D.</p></li>
+          <li class="reveal" style="--i:2"><span>03</span><b>Structure</b><p>Cartoon, wire, spacefill or surface, in any colouring.</p></li>
+          <li class="reveal" style="--i:3"><span>04</span><b>Inspector</b><p>How it looks, what's on screen, and what sits within 5 Å of a selection.</p></li>
+        </ol>
+        <div class="keys reveal" aria-label="Keyboard shortcuts">
+          <span><kbd data-mod>Ctrl</kbd><kbd>K</kbd> Commands</span>
+          <span><kbd>1</kbd>–<kbd>4</kbd> Visual modes</span>
+          <span><kbd>I</kbd> Inspector</span>
+          <span><kbd>R</kbd> Reset view</span>
+          <span><kbd>?</kbd> Every shortcut</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section toolkit" id="toolkit" data-toolkit>
+      <div class="wrap">
+        <p class="label reveal"><b>05</b><i></i><span data-scramble>Toolkit</span></p>
+        <h2 class="reveal" style="--i:1">Everything else, one question away.</h2>
+        <p class="body reveal" style="--i:2">Every preview here is real: Argus’s own code, run on KRAS, one of the most frequently mutated genes in cancer, against the same public databases the app calls.</p>
+        <div class="tk reveal" style="--i:3">
+          <div class="tk-index" role="tablist" aria-label="Tools" aria-orientation="vertical" data-tk-index>
+            <button type="button" role="tab" id="tk-tab-variant" class="tk-tab is-on" aria-selected="true" aria-controls="tk-panel" tabindex="0"><span class="tk-n">01</span><span class="tk-name">Variant Lens</span><span class="tk-src">AlphaMissense · UniProt</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-partners" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">02</span><span class="tk-name">Partners</span><span class="tk-src">STRING · RCSB</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-similar" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">03</span><span class="tk-name">Find similar</span><span class="tk-src">Foldseek</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-alphafold" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">04</span><span class="tk-name">AlphaFold + AlphaFill</span><span class="tk-src">AlphaFold DB · AlphaFill</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-fold" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">05</span><span class="tk-name">Fold a sequence</span><span class="tk-src">ESMFold</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-quiz" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">06</span><span class="tk-name">Quizzes</span><span class="tk-src">Built in</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-palette" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">07</span><span class="tk-name">Ask the chat to do it</span><span class="tk-src">Built in</span><span class="tk-bar"></span></button>
+            <button type="button" role="tab" id="tk-tab-share" class="tk-tab" aria-selected="false" aria-controls="tk-panel" tabindex="-1"><span class="tk-n">08</span><span class="tk-name">Share links</span><span class="tk-src">Built in</span><span class="tk-bar"></span></button>
+          </div>
+          <div class="tk-panel" id="tk-panel" role="tabpanel" aria-labelledby="tk-tab-variant" data-tk-panel>
+            <div class="tk-head"><span class="tk-title" data-tk-title>Variant Lens</span><span class="tk-ctx" data-tk-context>KRAS · P01116</span></div>
+            <div class="tk-body" data-tk-body></div>
+            <div class="tk-foot" data-tk-foot></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="investigate">
+      <div class="wrap split">
+        <div>
+          <p class="label reveal"><b>06</b><i></i><span data-scramble>Investigate</span></p>
+          <h2 class="reveal" style="--i:1">Big questions, answered step by step.</h2>
+          <p class="body reveal" style="--i:2">When a question needs several tools, Argus plans the steps, runs them in your browser, measures how the results relate in 3D, and writes an answer that cites every step.</p>
+          <ul class="ticks reveal" style="--i:3">
+            <li>Every residue it marks comes from a step, not from its memory.</li>
+            <li>Click a citation, or a step, to see it in 3D.</li>
+            <li>Pick Investigate from the + menu, or start a message with <code>investigate:</code></li>
+          </ul>
+        </div>
+        <div class="inv reveal" style="--i:2" data-investigation>
+          <p class="inv-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6.5L4.6 18.4A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.4-2.6L14 9.5V3"/><path d="M7.5 15h9"/></svg>Investigate · KRAS, 6OIM</p>
+          <p class="inv-q">Are the disease mutations of KRAS near a druggable pocket?</p>
+          <ol class="steps">
+            <li class="step"><span class="state"></span><span><b>Facts</b><span>Annotations from UniProt and PDBe</span></span></li>
+            <li class="step"><span class="state"></span><span><b>Variants</b><span>Disease variants and AlphaMissense scores</span></span></li>
+            <li class="step"><span class="state"></span><span><b>Pockets</b><span>Pockets predicted by P2Rank</span></span></li>
+            <li class="step"><span class="state"></span><span><b>Relate</b><span>Variant positions within 6 Å of pocket 1</span></span></li>
+          </ol>
+          <p class="answer">15 of 19 disease-variant positions sit within 6&nbsp;Å of pocket&nbsp;1 <span class="cite">4</span>, the pocket that holds GDP in this structure <span class="cite">3</span>. Most of the known mutations line the site a drug would use.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="validated">
+      <div class="dots-bg" aria-hidden="true"></div>
+      <div class="wrap">
+        <p class="label reveal"><b>07</b><i></i><span data-scramble>Validated</span></p>
+        <h2 class="reveal" style="--i:1">Grounded, checked, cited.</h2>
+        <p class="body reveal" style="--i:2">Curated facts go in with every question, in the file’s own numbering. Every answer is checked against the structure on screen, and what doesn’t hold is repaired before anything is drawn: here in your browser, or by the AI, once.</p>
+        <div class="ck reveal" data-check>
+          <div class="ck-head"><span class="ck-title">Answer check</span><span class="ck-ctx">1M17 · EGFR kinase with erlotinib</span></div>
+          <p class="ck-q"><span>Asked</span>How does erlotinib bind EGFR?</p>
+          <div class="ck-body">
+            <div class="ck-in">
+              <h3 class="ck-stage"><b>01</b>Facts in<em>sent with the question</em></h3>
+              <div class="ck-facts" data-ck-facts></div>
+            </div>
+            <div class="ck-table">
+              <div class="ck-cols" aria-hidden="true">
+                <span>The draft<em>in UniProt numbering</em></span>
+                <span><b>02</b>Checked<em>against the file</em></span>
+                <span><b>03</b>Repaired<em>before it’s drawn</em></span>
+              </div>
+              <ol class="ck-rows" data-ck-rows></ol>
+            </div>
+          </div>
+          <div class="ck-foot"><p aria-live="polite" data-ck-status>Waiting for the draft…</p><button type="button" class="ck-again" data-ck-again>Run the check again</button></div>
+        </div>
+        <p class="ck-note reveal">The draft numbers EGFR the way papers do, by UniProt; 1M17 numbers it 24 lower. The facts, the check and the repair are Argus’s own code, run on it.</p>
+
+        <div class="bench-head reveal"><span>Measured against the reference tools</span><span class="bench-key"><span><i></i>Argus</span><span><i class="is-ref"></i>The reference tool</span></span></div>
+        <ol class="bench">
+          <li class="bm reveal" style="--i:0">
+            <div class="bm-who"><span class="bm-n">01</span><b>Interactions</b><span class="bm-ref">vs PDBe Arpeggio</span></div>
+            <span class="bm-v" data-count="97" data-suffix="%">97%</span>
+            <div class="bm-bars">
+              <div class="bm-bar" style="--v:.97"><span>Hydrogen-bonded residues</span><em>97%</em><i></i></div>
+              <div class="bm-bar" style="--v:1"><span>Metal contacts</span><em>100%</em><i></i></div>
+            </div>
+            <div class="bm-text"><p>of Arpeggio’s hydrogen-bonded residues found, and every metal contact.</p><span class="bm-foot">Ten ligands from classic structures</span></div>
+          </li>
+          <li class="bm reveal" style="--i:1">
+            <div class="bm-who"><span class="bm-n">02</span><b>Overlay</b><span class="bm-ref">vs RCSB FATCAT</span></div>
+            <span class="bm-v" data-count="7.13" data-decimals="2" data-suffix="&nbsp;Å">7.13&nbsp;Å</span>
+            <div class="bm-scale" aria-hidden="true" style="--x:.8913">
+              <i class="bm-track"></i>
+              <i class="bm-tick" style="--t:0"></i><i class="bm-tick" style="--t:.125"></i><i class="bm-tick" style="--t:.25"></i><i class="bm-tick" style="--t:.375"></i><i class="bm-tick" style="--t:.5"></i><i class="bm-tick" style="--t:.625"></i><i class="bm-tick" style="--t:.75"></i><i class="bm-tick" style="--t:.875"></i><i class="bm-tick" style="--t:1"></i>
+              <i class="bm-fill"></i>
+              <span class="bm-pin is-up is-left" style="--p:.8913"><span class="bm-label"><b>Argus</b>7.13 Å</span></span>
+              <span class="bm-pin is-down is-left" style="--p:.8925"><span class="bm-label"><b>FATCAT</b>7.14 Å</span></span>
+              <span class="bm-end">0</span><span class="bm-end is-r">8 Å</span>
+            </div>
+            <div class="bm-text"><p>whole-chain fit of open and closed adenylate kinase. FATCAT gives 7.14 Å.</p><span class="bm-foot">4AKE onto 1AKE</span></div>
+          </li>
+          <li class="bm reveal" style="--i:2">
+            <div class="bm-who"><span class="bm-n">03</span><b>Overlay core</b><span class="bm-ref">vs TM-align</span></div>
+            <span class="bm-v" data-count="0.4" data-decimals="1" data-suffix="&nbsp;Å">0.4&nbsp;Å</span>
+            <div class="bm-scale" aria-hidden="true" style="--x:.2">
+              <i class="bm-track"></i>
+              <i class="bm-tick" style="--t:0"></i><i class="bm-tick" style="--t:.125"></i><i class="bm-tick" style="--t:.25"></i><i class="bm-tick" style="--t:.375"></i><i class="bm-tick" style="--t:.5"></i><i class="bm-tick" style="--t:.625"></i><i class="bm-tick" style="--t:.75"></i><i class="bm-tick" style="--t:.875"></i><i class="bm-tick" style="--t:1"></i>
+              <i class="bm-fill"></i>
+              <span class="bm-pin is-up" style="--p:.2"><span class="bm-label"><b>Mean</b>0.4 Å</span></span>
+              <span class="bm-end">0</span><span class="bm-end is-r">2 Å, the core’s edge</span>
+            </div>
+            <div class="bm-text"><p>how far, on average, the core residues sit from where TM-align places them.</p><span class="bm-foot">Same pair</span></div>
+          </li>
+          <li class="bm reveal" style="--i:3">
+            <div class="bm-who"><span class="bm-n">04</span><b>Coverage</b><span class="bm-ref">The whole RCSB PDB</span></div>
+            <span class="bm-v" data-count="200" data-suffix="k+">200k+</span>
+            <div class="bm-styles"><span>Cartoon</span><span>Wire</span><span>Spacefill</span><span>Surface</span></div>
+            <div class="bm-text"><p>PDB entries to open, as cartoon, wire, spacefill or surface.</p><span class="bm-foot">Plus AlphaFold DB</span></div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="science">
+      <div class="wrap">
+        <p class="label reveal"><b>08</b><i></i><span data-scramble>Science</span></p>
+        <h2 class="reveal" style="--i:1">Built on open science.</h2>
+        <p class="body reveal" style="--i:2">Structures, annotations and predictions come from the field’s public databases and open models: NVIDIA Nemotron 3 Super on Nebius Token Factory, and Boltz-2 (MIT) on NVIDIA. Argus is the part that asks the right one and shows you the answer in 3D.</p>
+        <div class="src">
+          <div class="src-col reveal" style="--i:0">
+            <h3 class="src-head"><span>Structures</span><em>04</em></h3>
+            <ul>
+              <li><a href="https://www.rcsb.org" target="_blank" rel="noopener"><b>RCSB PDB<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Structure files and complexes</span><span class="src-calls">files.rcsb.org/download</span></a></li>
+              <li><a href="https://www.ebi.ac.uk/pdbe/" target="_blank" rel="noopener"><b>PDBe<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>SIFTS residue mapping, ligands</span><span class="src-calls">www.ebi.ac.uk/pdbe/api</span></a></li>
+              <li><a href="https://alphafold.ebi.ac.uk" target="_blank" rel="noopener"><b>AlphaFold DB<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Predicted models, AlphaMissense</span><span class="src-calls">alphafold.ebi.ac.uk/api</span></a></li>
+              <li><a href="https://esmatlas.com" target="_blank" rel="noopener"><b>ESM Atlas<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>ESMFold predictions</span><span class="src-calls">api.esmatlas.com/foldSequence</span></a></li>
+            </ul>
+          </div>
+          <div class="src-col reveal" style="--i:1">
+            <h3 class="src-head"><span>Annotations</span><em>03</em></h3>
+            <ul>
+              <li><a href="https://www.uniprot.org" target="_blank" rel="noopener"><b>UniProt<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Features, sequences, disease variants</span><span class="src-calls">rest.uniprot.org/uniprotkb</span></a></li>
+              <li><a href="https://string-db.org" target="_blank" rel="noopener"><b>STRING<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Interaction partners</span><span class="src-calls">string-db.org/api</span></a></li>
+              <li><a href="https://pubchem.ncbi.nlm.nih.gov" target="_blank" rel="noopener"><b>PubChem<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Molecule names and SMILES</span><span class="src-calls">pubchem.ncbi.nlm.nih.gov/rest/pug</span></a></li>
+            </ul>
+          </div>
+          <div class="src-col reveal" style="--i:2">
+            <h3 class="src-head"><span>Analysis</span><em>04</em></h3>
+            <ul>
+              <li><a href="https://search.foldseek.com" target="_blank" rel="noopener"><b>Foldseek<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Structural similarity search</span><span class="src-calls">search.foldseek.com/api</span></a></li>
+              <li><a href="https://prankweb.cz" target="_blank" rel="noopener"><b>PrankWeb<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>P2Rank pocket predictions</span><span class="src-calls">prankweb.cz/api/v2</span></a></li>
+              <li><a href="https://alphafill.eu" target="_blank" rel="noopener"><b>AlphaFill<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Ligands for AlphaFold models</span><span class="src-calls">alphafill.eu/v1/aff</span></a></li>
+              <li><a href="https://plip-tool.biotec.tu-dresden.de" target="_blank" rel="noopener"><b>PLIP<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Interaction criteria</span><span class="src-calls">applied in your browser</span></a></li>
+            </ul>
+          </div>
+          <div class="src-col reveal" style="--i:3">
+            <h3 class="src-head"><span>Models &amp; viewer</span><em>03</em></h3>
+            <ul>
+              <li><a href="https://tokenfactory.nebius.com" target="_blank" rel="noopener"><b>Nemotron 3 Super · Nebius<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>The conversation and Investigate mode</span><span class="src-calls">api.tokenfactory.nebius.com, via an edge function</span></a></li>
+              <li><a href="https://github.com/jwohlwend/boltz" target="_blank" rel="noopener"><b>Boltz-2 · NVIDIA<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Co-folding, pose and affinity</span><span class="src-calls">health.api.nvidia.com, via an edge function</span></a></li>
+              <li><a href="https://3dmol.csb.pitt.edu" target="_blank" rel="noopener"><b>3Dmol.js<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>The WebGL molecular viewer</span><span class="src-calls">runs in your browser</span></a></li>
+            </ul>
+          </div>
+        </div>
+        <p class="src-cite reveal"><span>Please cite them if Argus helps your work.</span><span>14 sources</span></p>
+      </div>
+    </section>
+
+    <section class="section" id="privacy">
+      <div class="wrap split">
+        <div>
+          <p class="label reveal"><b>09</b><i></i><span data-scramble>Privacy</span></p>
+          <h2 class="reveal" style="--i:1">No accounts. Nothing on a server.</h2>
+          <dl class="privacy-list reveal" style="--i:2">
+            <div><dt>No accounts</dt><dd>Open it and ask. There is nothing to sign up for and nothing stored on a server.</dd></div>
+            <div><dt>Straight from your browser</dt><dd>The science databases are free, keyless and called directly, so their data never passes through an Argus server.</dd></div>
+            <div><dt>Keys stay at the edge</dt><dd>Three edge functions hold the only keys: the analysis, Investigate's plan and write-up, and Co-fold.</dd></div>
+            <div><dt>Links that keep secrets</dt><dd>Answers are cached in your browser, and a share link carries its view in the part of the URL that never reaches a server.</dd></div>
+          </dl>
+        </div>
+        <svg class="arch reveal" style="--i:3" viewBox="0 0 600 340" role="img" aria-label="Your browser runs Argus and calls the public databases directly. Only three edge functions, which hold the keys, talk to the AI model and to Boltz-2.">
+          <g><rect x="10" y="128" width="170" height="84" rx="12"/><text class="t" x="95" y="164" text-anchor="middle">Your browser</text><text class="s" x="95" y="188" text-anchor="middle">THE ARGUS APP</text></g>
+          <g><rect x="330" y="12" width="260" height="100" rx="12"/><text class="t" x="460" y="48" text-anchor="middle">Public databases</text><text class="s" x="460" y="72" text-anchor="middle">RCSB · UNIPROT · ALPHAFOLD</text><text class="s" x="460" y="92" text-anchor="middle">PDBE · FOLDSEEK · STRING</text></g>
+          <g class="key"><rect x="246" y="236" width="156" height="84" rx="12"/><text class="t" x="324" y="272" text-anchor="middle">Edge functions</text><text class="s" x="324" y="296" text-anchor="middle">THE ONLY KEYS</text></g>
+          <g><rect x="434" y="236" width="156" height="84" rx="12"/><text class="t" x="512" y="272" text-anchor="middle">Nebius · NVIDIA</text><text class="s" x="512" y="296" text-anchor="middle">NEMOTRON · BOLTZ-2</text></g>
+          <path d="M180 152 C 250 152, 266 62, 330 62"/>
+          <path d="M180 188 C 222 188, 210 278, 246 278"/>
+          <path d="M402 278 L 434 278"/>
+          <text class="s" x="334" y="134">DIRECT · KEYLESS</text>
+        </svg>
+      </div>
+    </section>
+
+    <section class="final">
+      <div class="giant" aria-hidden="true">ARGUS</div>
+      <div class="wrap">
+        <h2 class="reveal">See every side.</h2>
+        <p class="body reveal" style="--i:1">Any protein, any question. Free, in your browser, with nothing to sign up for.</p>
+        <div class="cta reveal" style="--i:2">
+          <span class="metal-host" data-metal><a class="btn btn-metal" href="/app"><span>Open Argus</span></a></span>
+        </div>
+        <p class="myth reveal" style="--i:3">Named after Argus, the giant of Greek myth with a hundred eyes, who saw everything.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot">
+        <a class="logo" href="#top">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 9 9 23h14Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><g fill="currentColor"><circle cx="16" cy="9" r="4"/><circle cx="9" cy="23" r="4"/><circle cx="23" cy="23" r="4"/></g></svg>
+          Argus
+        </a>
+        <nav aria-label="Footer">
+          <a href="/app">Open Argus</a>
+          <a href="#ask">How it works</a>
+          <a href="#science">Science</a>
+          <a href="https://raisun.dev">Built by Rohan Vishwakarma</a>
+        </nav>
+        <span>© <span data-year>2026</span> Argus</span>
+      </div>
+      <p class="note">Argus is a research aid. Its predictions (pathogenicity, pockets, folds, transplanted ligands, co-folded poses and affinities) are not experimental results or clinical advice.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="/landing/main.js"></script>
+</body>
+</html>

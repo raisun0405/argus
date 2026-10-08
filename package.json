@@ -1,0 +1,32 @@
+{
+  "name": "argus",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1",
+    "border-beam": "^1.4.1",
+    "metal-fx": "^2.0.11",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "thinking-orbs": "^0.3.2",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.28",
+    "tailwindcss": "3.4",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
