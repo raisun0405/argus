@@ -27,7 +27,7 @@ server-side Edge Functions (the key never reaches the browser):
 | Where | What Nemotron does |
 |---|---|
 | [`api/analyze.ts`](api/analyze.ts) | Answers a question about a protein: picks the PDB entry or AlphaFold model, writes the explanation, marks the residues it talks about, adds quizzes and guided tours, and asks the viewer for actions (shapes, colours, tools). Grounded in facts the app looks up first (UniProt, PDBe, predicted pockets), and checked against the structure file afterwards. |
-| [`api/investigate.ts`](api/investigate.ts) | **Investigate mode**, the agentic part: Nemotron plans which of the app's tools to run (annotations, AlphaMissense variants, P2Rank pockets, ligand contacts, STRING partners, Foldseek, distance relations between them), the browser runs those tools, and Nemotron writes the conclusion from their numbered results alone, citing each step. |
+| [`api/investigate.ts`](api/investigate.ts) | **Investigate mode**, the agentic part: Nemotron plans which of the app's tools to run (annotations, AlphaMissense variants, P2Rank pockets, ligand contacts, STRING partners, Foldseek, a Tavily search of published research, distance relations between them), the tools run, and Nemotron writes the conclusion from their numbered results alone, citing each step. A paper appears only as a quote matched word for word to it, and a check pass reviews every other sentence. |
 
 Both ask for JSON (`response_format`), with `reasoning_effort: "low"`: Nemotron reasons first, apart
 from the answer, and briefly, so answers arrive in a few seconds. `NEMOTRON_MODEL` switches to another
@@ -46,7 +46,7 @@ takes you further.
 ### Ask and learn
 - **Conversational analysis** with highlighted residues by role: active site, binding site, ligand, substrate, metal, cofactor, mutation. A structure opens whole, with the rest faded just enough for the highlights to stand out; click a highlight in the answer to zoom to it.
 - **Grounded answers.** Curated UniProt features and PDBe ligand data, converted to the loaded file's own chain IDs and residue numbers, go with every question. Each answer is then checked against the structure: residues that don't exist, wrong chains or mislabelled ligands are corrected locally or sent back to the AI once for repair.
-- **Investigate mode.** For a question that needs several tools at once, such as *"are the disease mutations of KRAS near a druggable pocket?"*, pick Investigate from the message box's + menu (or start the message with `investigate:`). The AI plans the steps from Argus's own tools: UniProt and PDBe annotations, Variant Lens, Pocket Radar, ligand contacts, partners and similar folds, plus a step that measures in 3D how two results relate (which disease variants line which pocket). The app runs the steps in the browser while a checklist shows each one's progress and result. The AI then writes the answer from those results alone, citing the step behind each claim, and every residue it marks comes from a step, not from its memory. Click a citation or a step to see it in 3D.
+- **Investigate mode.** For a question that needs several tools at once, such as *"are the disease mutations of KRAS near a druggable pocket?"*, pick Investigate from the message box's + menu (or start the message with `investigate:`). The AI plans the steps from Argus's own tools: UniProt and PDBe annotations, Variant Lens, Pocket Radar, ligand contacts, partners and similar folds, a search of published research, plus a step that measures in 3D how two results relate (which disease variants line which pocket). The app runs the steps in the browser while a checklist shows each one's progress and result. The AI then writes the answer from those results alone, citing the step behind each claim, and every residue it marks comes from a step, not from its memory. What a paper says reaches the answer only in the paper's own words: the app matches each quote word for word to its paper, and checks every other sentence against the step it cites. Click a citation or a step to see it in 3D.
 - **Cinematic tours** that zoom from site to site with subtitles, and **quizzes** whose correct answers fly the camera to the residues.
 - **Ask the chat to do it.** Anything the controls do can be typed: *"surface, coloured by chain"*, *"hide waters"*, *"opacity 40"*, *"open pockets"*, *"select A:25"*, *"paper theme"*, *"play the tour"*. Plain requests like these run at once without the AI; an answer can also change the view or open a tool when the question calls for it (*"show me hemoglobin as a surface"*). Under each request the chat lists what actually changed, and why anything couldn't be done.
 - **Voice input** in the browser.
@@ -91,7 +91,8 @@ The app is a static React site. The science databases are called directly from t
 server; only Co-fold reads RCSB on the server, to build its input. The server code is three Vercel
 Edge Functions, the only places keys live:
 [`api/analyze.ts`](api/analyze.ts) talks to the LLM, [`api/investigate.ts`](api/investigate.ts) makes
-Investigate mode's two LLM calls (the plan, then the write-up; the browser runs the steps in between),
+Investigate mode's two LLM calls (the plan, then the write-up; the browser runs the steps in between)
+and its literature search,
 and [`api/cofold.ts`](api/cofold.ts) runs Boltz-2 on NVIDIA's API. Co-fold builds its input on the server: each chain's sequence from RCSB,
 cut to the residues the entry has coordinates for, with that chain as a structural template, since
 NVIDIA's service predicts without a sequence alignment. The answer comes back numbered like the
@@ -109,6 +110,7 @@ entry and streams while Boltz-2 runs (usually 10–60 s).
 | [Foldseek](https://search.foldseek.com) | Structural similarity search | van Kempen et al., *Nat Biotechnol* 2024 |
 | [PrankWeb](https://prankweb.cz) | P2Rank pocket predictions | Krivák & Hoksza, *J Cheminform* 2018; ELIXIR CZ |
 | [STRING](https://string-db.org) | Interaction partners | CC BY 4.0 · Szklarczyk et al., *NAR* 2023 |
+| [Tavily](https://www.tavily.com) | Investigate's literature step: a web search of PubMed, journals and preprint servers | Tavily API terms; each paper links to its publisher |
 | [Boltz-2](https://github.com/jwohlwend/boltz) via [NVIDIA](https://build.nvidia.com/mit/boltz2) | Co-folding: pose, confidence and affinity | MIT · Passaro, Corso, Wohlwend et al., *bioRxiv* 2025 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | Molecule names and SMILES for Co-fold | NCBI · Kim et al., *NAR* 2023 |
 | [PLIP](https://plip-tool.biotec.tu-dresden.de) (criteria) | Interaction types and distance and angle thresholds | Salentin et al., *NAR* 2015; Adasme et al., *NAR* 2021 |
@@ -151,6 +153,7 @@ Other scripts: `npm run typecheck` (TypeScript, strict) and `npm run build` (pro
 | `NEBIUS_API_KEY` | Yes | Nebius Token Factory API key, read only by `api/analyze.ts` and `api/investigate.ts`. On Vercel, set it under Project Settings → Environment Variables. |
 | `NEMOTRON_MODEL` | No | Another Token Factory model ID (default `nvidia/nemotron-3-super-120b-a12b`). |
 | `NVIDIA_NIM_KEY` | For Co-fold | NVIDIA API key for hosted Boltz-2, read only by `api/cofold.ts`. Without it the Co-fold tool stays hidden. |
+| `TAVILY_API_KEY` | For literature | Tavily API key ([app.tavily.com](https://app.tavily.com)), read only by `api/investigate.ts`. Without it Investigate never plans a literature search. |
 | `COFOLD_DAILY_LIMIT` | No | Predictions per day per server instance (default 60). |
 
 The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed variables to client code.

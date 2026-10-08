@@ -92,9 +92,10 @@ const StepRow: React.FC<StepRowProps> = ({ step, last, live, flash, rowRef, onSh
     </>
   );
 
-  // Lists (partners, similar folds): their first entries, each a click away
+  // Lists (partners, similar folds, papers): their first entries, each a click away
   const partners = status === 'done' ? result?.partners : undefined;
   const similar = status === 'done' ? result?.similar : undefined;
+  const sources = status === 'done' ? result?.sources : undefined;
   const hits = similar ? [...similar.proteins, ...similar.experimental].slice(0, 3) : [];
   const listButton = 'max-w-full truncate h-6 px-2 rounded-md border border-line bg-canvas/40 text-[11.5px] text-ink hover:border-line-2 hover:text-ink-strong transition-colors';
 
@@ -137,6 +138,25 @@ const StepRow: React.FC<StepRowProps> = ({ step, last, live, flash, rowRef, onSh
               </button>
             ))}
           </div>
+        )}
+        {sources && sources.length > 0 && (
+          <ul className="mt-1 space-y-px" data-sources>
+            {sources.map((s, i) => (
+              <li key={s.url}>
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={s.excerpt}
+                  className="group -mx-2 px-2 py-0.5 touch:py-1.5 flex items-baseline gap-1.5 rounded-md text-chat-meta leading-snug hover:bg-chip/50 transition-colors"
+                >
+                  <span className="flex-shrink-0 tabular-nums text-ink-dim">{String.fromCharCode(97 + i)}</span>
+                  <span className="min-w-0 line-clamp-2 text-ink group-hover:text-ink-strong">{s.title}</span>
+                  <span className="ml-auto flex-shrink-0 text-ink-dim">{s.site}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </li>
@@ -199,6 +219,20 @@ const InvestigationCard: React.FC<InvestigationCardProps> = ({
     if (live && step.status === 'done') onShowStep(step);
   };
 
+  /** "Step 2: Predicted pockets (P2Rank)", or for a paper "Paper 3a: <its title>". */
+  const citeTitle = (index: number, paper?: string) => {
+    const step = steps.find(s => s.index === index);
+    const source = paper ? step?.result?.sources?.[paper.charCodeAt(0) - 97] : undefined;
+    return source ? `Paper ${index}${paper}: ${source.title} (${source.site})` : `Step ${index}: ${step?.label ?? ''}`;
+  };
+  const checked = writeUp?.checked;
+  // What was checked: the sentences against the step results, the quotes word for word against their papers
+  const checkedNote = checked && [
+    checked.sentences > 0 && `${checked.sentences} ${checked.sentences === 1 ? 'sentence' : 'sentences'} checked against the step results${
+      checked.fixed + checked.dropped > 0 ? ` (${[checked.fixed && `${checked.fixed} narrowed`, checked.dropped && `${checked.dropped} removed`].filter(Boolean).join(', ')})` : ''}`,
+    !!checked.quotes && `${checked.quotes} ${checked.quotes === 1 ? 'quote' : 'quotes'} matched word for word to ${checked.quotes === 1 ? 'its paper' : 'their papers'}`,
+  ].filter(Boolean).join(' · ');
+
   return (
     <div data-investigation data-phase={phase} className="min-w-0">
       <div className="flex items-center gap-1.5 text-[11px] font-medium text-ink-dim">
@@ -236,12 +270,12 @@ const InvestigationCard: React.FC<InvestigationCardProps> = ({
                 <React.Fragment key={i}>
                   <button
                     type="button"
-                    data-cite={part.cite}
+                    data-cite={`${part.cite}${part.paper ?? ''}`}
                     onClick={() => cite(part.cite)}
-                    title={`Step ${part.cite}: ${steps.find(s => s.index === part.cite)?.label ?? ''}`}
+                    title={citeTitle(part.cite, part.paper)}
                     className="inline-flex items-center justify-center align-[1px] min-w-[17px] h-[17px] px-1 mx-[1px] rounded-[5px] bg-chip text-[10.5px] font-semibold leading-none tabular-nums text-ink-muted hover:text-ink-strong hover:bg-line transition-colors"
                   >
-                    {part.cite}
+                    {part.cite}{part.paper}
                   </button>
                   {'cite' in (answerParts[i + 1] ?? {}) ? JOIN : ''}
                 </React.Fragment>
@@ -251,6 +285,9 @@ const InvestigationCard: React.FC<InvestigationCardProps> = ({
             )}
           </p>
           {writeUp.caveat && <p className="mt-2 text-chat-meta leading-snug text-ink-dim">{writeUp.caveat}</p>}
+          {checkedNote && (
+            <p className="mt-1.5 text-chat-meta leading-snug text-ink-dim" data-answer-checked>{checkedNote}</p>
+          )}
           {writeUp.fallback && (
             <p className="mt-2 text-chat-meta leading-snug text-ink-dim">The AI couldn't write this up, so these are the step results as they came.</p>
           )}

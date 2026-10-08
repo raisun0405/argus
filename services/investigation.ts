@@ -11,8 +11,8 @@ import { INTERACTION_LABELS, analyzeInteractions, interactionSummary, partnerLab
 import { findPartners } from './partnerService';
 import { extractChain, pickSearchChain, proteinChains, searchSimilarStructures } from './foldseekService';
 import {
-  TOOL_SETS, normalizePlan, normalizeWrite, relateSet, setCategory, setLabel, stepLabel,
-  type InvestigationPlan, type PlanStep, type ToolId, type WriteUp,
+  TOOL_SETS, addQuotes, applyCheck, missingTerms, normalizeCheck, normalizePlan, normalizeSources, normalizeWrite, quoteGate, relateSet, safeTitle, setCategory, setLabel,
+  splitSentences, stepLabel, type InvestigationPlan, type LiteratureSource, type PlanStep, type ToolId, type WriteUp,
 } from './investigationPlan';
 
 // --- INVESTIGATE MODE: RUNNING THE STEPS ---
@@ -45,6 +45,7 @@ export interface StepResult {
   view?: 'pathogenicity' | 'pockets' | 'interactions'; // The workspace tool that shows this step in 3D
   partners?: PartnerSearchResult; // The lists themselves, for their "open" buttons
   similar?: SimilarSearchResult;
+  sources?: LiteratureSource[]; // The papers a literature step found, for their links
 }
 
 export interface InvestigationStep {
@@ -86,6 +87,7 @@ export interface InvestigationTools {
   proteins: (id: string) => Promise<SiftsAccession[]>;
   partners: (query: PartnerQuery) => Promise<PartnerSearchResult>;
   similar: (query: SimilarSearchQuery) => Promise<SimilarSearchResult>;
+  literature: (query: string) => Promise<LiteratureSource[]>;
 }
 
 /** The structure's file, wherever it lives: in memory (ESMFold, Co-fold), AlphaFold DB, or the PDB. */
@@ -118,11 +120,13 @@ export const browserTools: InvestigationTools = {
   proteins: fetchSiftsMapping,
   partners: query => findPartners(query),
   similar: query => searchSimilarStructures(query),
+  literature: query => searchLiterature(query),
 };
 
-// Outside servers compute pockets (PrankWeb) and fold searches (Foldseek): they get a minute or two
+// Outside servers compute pockets (PrankWeb) and fold searches (Foldseek): they get a minute or two.
+// A literature search allows for one wait when the server is rate-limited.
 const STEP_TIMEOUT_MS: Record<ToolId, number> = {
-  facts: 30_000, variants: 45_000, pockets: 100_000, ligands: 15_000, partners: 60_000, similar: 120_000, relate: 10_000,
+  facts: 30_000, variants: 45_000, pockets: 100_000, ligands: 15_000, partners: 60_000, similar: 120_000, literature: 45_000, relate: 10_000,
 };
 
 const MAX_SET = 5000; // Residues in a set: a large complex's every copy, with room to spare
@@ -393,6 +397,31 @@ const runSimilar = async (ctx: StepContext): Promise<StepResult> => {
   };
 };
 
+const runLiterature = async ({ tools }: StepContext, step: PlanStep): Promise<StepResult> => {
+  const query = step.query ?? '';
+  if (!query) throw new SkipStep('the plan gave no search words');
+  let sources: LiteratureSource[];
+  try {
+    sources = await tools.literature(query);
+  } catch (e) {
+    // Not set up on this server, or its search allowance is used up
+    if ((e as { status?: number }).status === 503) throw new SkipStep('the literature search is unavailable here');
+    throw e;
+  }
+  if (sources.length === 0) {
+    return { summary: `No papers found for “${query}”`, evidence: `A search of scientific publications for "${query}" found no relevant papers.`, sets: [] };
+  }
+  return {
+    summary: `${plural(sources.length, 'paper')} found for “${query}”`,
+    evidence: [
+      `A search of scientific publications for "${query}" found these papers (each with an excerpt from it):`,
+      ...sources.map((s, i) => `(${String.fromCharCode(97 + i)}) "${s.title}" (${s.site}): ${s.excerpt}`),
+    ].join('\n'),
+    sets: [],
+    sources,
+  };
+};
+
 const runRelate = async ({ model, sets }: StepContext, step: PlanStep): Promise<StepResult> => {
   const a = sets.get(step.a ?? '');
   const b = sets.get(step.b ?? '');
@@ -432,6 +461,7 @@ const runTool = (step: PlanStep, ctx: StepContext): Promise<StepResult> => {
     case 'ligands': return runLigands(ctx);
     case 'partners': return runPartners(ctx);
     case 'similar': return runSimilar(ctx);
+    case 'literature': return runLiterature(ctx, step);
     case 'relate': return runRelate(ctx, step);
   }
 };
@@ -556,6 +586,8 @@ const MAX_RATE_LIMIT_WAIT_S = 20;
 const post = async (body: object, onRateLimitWait?: (seconds: number) => void): Promise<unknown> => {
   const send = () => fetch('/api/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   let response = await send();
+  // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one more try
+  if (response.status === 502 || response.status === 504) response = await send();
   // The AI is rate-limited: wait as long as it suggests, within reason, and try once more
   if (response.status === 429) {
     const suggested = Number(response.headers.get('retry-after'));
@@ -573,10 +605,50 @@ const post = async (body: object, onRateLimitWait?: (seconds: number) => void): 
 
 /** The AI's plan for a question about the structure on screen (null when it's unusable). */
 export const requestPlan = async (question: string, current: { pdbId: string; title: string }, onRateLimitWait?: (seconds: number) => void) =>
-  normalizePlan(await post({ stage: 'plan', question, current }, onRateLimitWait), current.pdbId);
+  normalizePlan(await post({ stage: 'plan', question, current }, onRateLimitWait), current.pdbId, question);
 
-/** The AI's write-up of the finished steps (null when it's unusable). */
-export const requestWriteUp = async (
+/** Published papers for a literature step's search words (the server holds the search key). */
+const searchLiterature = async (query: string): Promise<LiteratureSource[]> =>
+  normalizeSources(((await post({ stage: 'search', question: query, query })) as { sources?: unknown })?.sources);
+
+const MAX_CHECKED = 8; // Sentences the server checks at once
+
+/** What a sentence's citations point at: each cited step's result, or one paper of it ([3a]). */
+const citedText = (sentence: string, steps: InvestigationStep[]) =>
+  [...sentence.matchAll(/\[(\d+)([a-d]?)\]/g)].map(([, n, paper]) => {
+    const step = steps.find(s => s.index === Number(n));
+    const source = paper ? step?.result?.sources?.[paper.charCodeAt(0) - 97] : undefined;
+    return source ? `${source.title} ${source.excerpt}` : step?.result ? `${step.label} ${step.result.evidence}` : '';
+  }).join(' ');
+
+/**
+ * The write-up with each sentence checked against the results it cites (the same results it was
+ * written from, papers and their excerpts included): kept, cut down to what they state, or dropped.
+ * Sentences past the first MAX_CHECKED are left as written.
+ */
+export const checkWriteUp = async (
+  question: string,
+  writeUp: WriteUp,
+  steps: InvestigationStep[],
+  onRateLimitWait?: (seconds: number) => void,
+): Promise<WriteUp> => {
+  const parts = splitSentences(writeUp.answer);
+  const sentences = parts.map((p, id) => ({ id, text: p.text.trim() })).filter(s => s.text.length > 0).slice(0, MAX_CHECKED)
+    .map(s => ({ ...s, missing: missingTerms(s.text, question, citedText(s.text, steps)) }));
+  if (sentences.length === 0) return writeUp;
+  const raw = (await post({ stage: 'check', question, results: findingsText(steps), sentences }, onRateLimitWait)) as { verdicts?: unknown };
+  const { answer, fixed, dropped } = applyCheck(writeUp.answer, normalizeCheck(raw, sentences), steps.length);
+  const checked = { sentences: sentences.length, fixed, dropped };
+  // Nothing left standing: say so plainly rather than show an empty answer
+  return { ...writeUp, answer: answer || 'The results of these steps don\'t answer this directly.', checked };
+};
+
+/** The literature steps' papers, by step number, as the write-up cites them. */
+const papersOf = (steps: InvestigationStep[]) =>
+  Object.fromEntries(steps.filter(s => s.result?.sources?.length).map(s => [s.index, s.result!.sources!]));
+
+/** The AI's first draft of the write-up of the finished steps (null when it's unusable). */
+export const requestDraft = async (
   question: string,
   structure: { id: string; title: string },
   steps: InvestigationStep[],
@@ -585,4 +657,34 @@ export const requestWriteUp = async (
   const sets = markableSets(steps);
   const raw = await post({ stage: 'write', question, structure, findings: findingsText(steps), sets, steps: steps.length }, onRateLimitWait);
   return normalizeWrite(raw, sets.map(s => s.name), steps.length);
+};
+
+/**
+ * A draft made ready to show, papers counting only through their own words: a sentence of the answer
+ * about a paper goes unless it quotes one word for word (quoteGate); the rest is checked against the
+ * results (a check that can't run leaves it unmarked); then the quotes the model picked are verified and
+ * added (addQuotes).
+ */
+export const finishWriteUp = async (question: string, draft: WriteUp, steps: InvestigationStep[], onRateLimitWait?: (seconds: number) => void): Promise<WriteUp> => {
+  const papers = papersOf(steps);
+  const gated = { ...draft, answer: quoteGate(draft.answer, papers, steps.length).answer };
+  const checked = gated.answer ? await checkWriteUp(question, gated, steps, onRateLimitWait).catch(() => gated) : gated;
+  // A fix can't bring a paraphrase back
+  const regated = quoteGate(checked.answer, papers, steps.length);
+  const quoted = addQuotes(regated.answer, draft.quotes ?? [], papers);
+  const counts = checked.checked && { ...checked.checked, dropped: checked.checked.dropped + regated.dropped };
+  const marked = quoted.added ? { ...(counts ?? { sentences: 0, fixed: 0, dropped: 0 }), quotes: quoted.added } : counts;
+  const answer = quoted.answer || 'The results of these steps don\'t answer this directly.';
+  return { ...checked, title: safeTitle(checked.title, question, answer), answer, ...(marked ? { checked: marked } : {}) };
+};
+
+/** The AI's write-up of the finished steps, checked and its quotes verified (null when it's unusable). */
+export const requestWriteUp = async (
+  question: string,
+  structure: { id: string; title: string },
+  steps: InvestigationStep[],
+  onRateLimitWait?: (seconds: number) => void,
+) => {
+  const draft = await requestDraft(question, structure, steps, onRateLimitWait);
+  return draft ? finishWriteUp(question, draft, steps, onRateLimitWait) : null;
 };

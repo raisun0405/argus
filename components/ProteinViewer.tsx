@@ -1978,9 +1978,10 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const overlayPicker = <OverlayPicker accession={overlayAccession} choices={overlayChoices} exclude={overlayExclude} onPick={startOverlay} />;
   const hasActionTools = showCofoldTool || showPartnersTool || showSimilarTool;
 
-  // Tool labels only while the labelled toolbar fits in the header beside the structure's ID and a
-  // readable stretch of its title; otherwise icons with tooltips. Labels hidden in compact mode still
-  // report their full width (scrollWidth), so both modes measure the same need.
+  // Tool labels only while the labelled toolbar fits in the header beside the structure's ID, its
+  // badges (AlphaFold, AlphaFill) and a readable stretch of its title; otherwise icons with tooltips.
+  // Labels hidden in compact mode still report their full width (scrollWidth), so both modes measure
+  // the same need.
   useLayoutEffect(() => {
     const header = headerRef.current;
     if (!header) return;
@@ -1989,7 +1990,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       if (!bar) return;
       const hidden = [...bar.querySelectorAll<HTMLElement>('[data-tool-label], [data-tool-extra]')].reduce((sum, el) => sum + el.scrollWidth - el.clientWidth, 0);
       const needed = bar.scrollWidth + hidden;
-      const reserved = (titleIdRef.current?.offsetWidth ?? 48) + 140;
+      const badges = [...header.querySelectorAll<HTMLElement>('[data-header-badge]')].reduce((sum, el) => sum + el.offsetWidth + 8, 0);
+      const reserved = (titleIdRef.current?.offsetWidth ?? 48) + badges + 140;
       setCompactTools(needed > header.clientWidth - reserved - 24);
     };
     measure();
@@ -1997,7 +1999,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     observer.observe(header);
     if (toolbarRef.current) observer.observe(toolbarRef.current);
     return () => observer.disconnect();
-  }, [inspectorOpen, showAfTool, showLensTool, showPocketTool, showInteractionsTool, showOverlayTool, showPartnersTool, showCofoldTool, showSimilarTool, afView?.fromPdb, entryProteins.length, partnerTargets.length]);
+  }, [inspectorOpen, showAfTool, showLensTool, showPocketTool, showInteractionsTool, showOverlayTool, showPartnersTool, showCofoldTool, showSimilarTool, afView?.fromPdb, entryProteins.length, partnerTargets.length,
+    isPredicted, prediction?.meanPlddt, alphaFill?.transplants.length]);
 
   // Residues by number (the palette's "A:25", the chat's "select A:25"): selected and brought into view
   const selectResidues = ({ chain, from, to }: { chain?: string; from: number; to: number }) => {
@@ -2528,7 +2531,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></svg>
           </HeaderIconButton>
         )}
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
           <span ref={titleIdRef} data-structure-id className="flex-shrink-0 inline-flex items-center h-[22px] px-1.5 rounded-md bg-chip/70 border border-line text-[12px] font-semibold text-ink-strong tabular-nums tracking-tight">
             {afAccession ?? (isEsm ? 'ESMFold' : isCofold ? 'Boltz-2' : pdbId.toUpperCase())}
           </span>
@@ -2539,13 +2542,14 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
             </span>
           )}
           {isPredicted && !phone && (
-            <span className="flex-shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-md bg-chip/50 text-[10.5px] font-medium text-ink-muted whitespace-nowrap">
+            <span data-header-badge className="flex-shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-md bg-chip/50 text-[10.5px] font-medium text-ink-muted whitespace-nowrap">
               <span className="flex text-brand-fg [&>svg]:w-[10px] [&>svg]:h-[10px]"><SparkIcon /></span>
               {isEsm ? 'Predicted' : isCofold ? 'Co-folded' : 'AlphaFold'}{prediction?.meanPlddt !== undefined ? ` · pLDDT ${Math.round(prediction.meanPlddt)}` : ''}
             </span>
           )}
           {alphaFill && alphaFill.transplants.length > 0 && !phone && (
             <span
+              data-header-badge
               className="hidden sm:inline-flex items-center flex-shrink-0 cursor-help h-5 px-1.5 rounded-md bg-chip/50 text-[10.5px] font-medium text-ink-muted whitespace-nowrap"
               title={`Ligands AlphaFill copied in from related PDB structures (not part of the AlphaFold prediction):\n${alphaFill.transplants
                 .map(t => `• ${t.name}${t.name !== t.compound ? ` (${t.compound})` : ''} — from ${t.sourcePdb}, ${Math.round(t.identity * 100)}% identical, ${t.confidence} confidence`)

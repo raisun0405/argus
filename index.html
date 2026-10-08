@@ -250,9 +250,10 @@
         <div>
           <p class="label reveal"><b>06</b><i></i><span data-scramble>Investigate</span></p>
           <h2 class="reveal" style="--i:1">Big questions, answered step by step.</h2>
-          <p class="body reveal" style="--i:2">When a question needs several tools, Argus plans the steps, runs them in your browser, measures how the results relate in 3D, and writes an answer that cites every step.</p>
+          <p class="body reveal" style="--i:2">When a question needs several tools, Argus plans the steps, runs them in your browser, measures how the results relate in 3D, looks up what published research reports, and writes an answer that cites every step.</p>
           <ul class="ticks reveal" style="--i:3">
             <li>Every residue it marks comes from a step, not from its memory.</li>
+            <li>Papers come from a search of PubMed, journals and preprints, each with its link.</li>
             <li>Click a citation, or a step, to see it in 3D.</li>
             <li>Pick Investigate from the + menu, or start a message with <code>investigate:</code></li>
           </ul>
@@ -360,11 +361,12 @@
             </ul>
           </div>
           <div class="src-col reveal" style="--i:1">
-            <h3 class="src-head"><span>Annotations</span><em>03</em></h3>
+            <h3 class="src-head"><span>Annotations</span><em>04</em></h3>
             <ul>
               <li><a href="https://www.uniprot.org" target="_blank" rel="noopener"><b>UniProt<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Features, sequences, disease variants</span><span class="src-calls">rest.uniprot.org/uniprotkb</span></a></li>
               <li><a href="https://string-db.org" target="_blank" rel="noopener"><b>STRING<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Interaction partners</span><span class="src-calls">string-db.org/api</span></a></li>
               <li><a href="https://pubchem.ncbi.nlm.nih.gov" target="_blank" rel="noopener"><b>PubChem<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Molecule names and SMILES</span><span class="src-calls">pubchem.ncbi.nlm.nih.gov/rest/pug</span></a></li>
+              <li><a href="https://www.tavily.com" target="_blank" rel="noopener"><b>Tavily<svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></b><span>Published research for Investigate</span><span class="src-calls">api.tavily.com, via an edge function</span></a></li>
             </ul>
           </div>
           <div class="src-col reveal" style="--i:2">
@@ -385,7 +387,7 @@
             </ul>
           </div>
         </div>
-        <p class="src-cite reveal"><span>Please cite them if Argus helps your work.</span><span>14 sources</span></p>
+        <p class="src-cite reveal"><span>Please cite them if Argus helps your work.</span><span>15 sources</span></p>
       </div>
     </section>
 
@@ -397,11 +399,11 @@
           <dl class="privacy-list reveal" style="--i:2">
             <div><dt>No accounts</dt><dd>Open it and ask. There is nothing to sign up for and nothing stored on a server.</dd></div>
             <div><dt>Straight from your browser</dt><dd>The science databases are free, keyless and called directly, so their data never passes through an Argus server.</dd></div>
-            <div><dt>Keys stay at the edge</dt><dd>Three edge functions hold the only keys: the analysis, Investigate's plan and write-up, and Co-fold.</dd></div>
+            <div><dt>Keys stay at the edge</dt><dd>Three edge functions hold the only keys: the analysis, Investigate's plan, search and write-up, and Co-fold.</dd></div>
             <div><dt>Links that keep secrets</dt><dd>Answers are cached in your browser, and a share link carries its view in the part of the URL that never reaches a server.</dd></div>
           </dl>
         </div>
-        <svg class="arch reveal" style="--i:3" viewBox="0 0 600 340" role="img" aria-label="Your browser runs Argus and calls the public databases directly. Only three edge functions, which hold the keys, talk to the AI model and to Boltz-2.">
+        <svg class="arch reveal" style="--i:3" viewBox="0 0 600 340" role="img" aria-label="Your browser runs Argus and calls the public databases directly. Only three edge functions, which hold the keys, talk to the AI model, the literature search and Boltz-2.">
           <g><rect x="10" y="128" width="170" height="84" rx="12"/><text class="t" x="95" y="164" text-anchor="middle">Your browser</text><text class="s" x="95" y="188" text-anchor="middle">THE ARGUS APP</text></g>
           <g><rect x="330" y="12" width="260" height="100" rx="12"/><text class="t" x="460" y="48" text-anchor="middle">Public databases</text><text class="s" x="460" y="72" text-anchor="middle">RCSB · UNIPROT · ALPHAFOLD</text><text class="s" x="460" y="92" text-anchor="middle">PDBE · FOLDSEEK · STRING</text></g>
           <g class="key"><rect x="246" y="236" width="156" height="84" rx="12"/><text class="t" x="324" y="272" text-anchor="middle">Edge functions</text><text class="s" x="324" y="296" text-anchor="middle">THE ONLY KEYS</text></g>

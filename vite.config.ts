@@ -43,7 +43,7 @@ function appPath(): Plugin {
 //
 // `apply: 'serve'` keeps it out of `vite build`; Vercel is unaffected.
 const API_ROUTES = ['analyze', 'cofold', 'investigate'];
-const SERVER_KEYS = ['NEBIUS_API_KEY', 'NEMOTRON_MODEL', 'NVIDIA_NIM_KEY', 'COFOLD_DAILY_LIMIT'];
+const SERVER_KEYS = ['NEBIUS_API_KEY', 'NEMOTRON_MODEL', 'NVIDIA_NIM_KEY', 'COFOLD_DAILY_LIMIT', 'TAVILY_API_KEY'];
 
 function vercelApiDev(env: Record<string, string>): Plugin {
   return {
