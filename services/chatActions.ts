@@ -29,7 +29,8 @@ export type ChatAction =
   | { kind: 'clear-selection' }
   | { kind: 'inspector'; open: boolean }
   | { kind: 'theme'; theme: string; name: string }
-  | { kind: 'tour'; play: boolean };
+  | { kind: 'tour'; play: boolean }
+  | { kind: 'picture' }; // Save the 3D view as a PNG file (only the user asks for this)
 
 export interface ActionResult {
   action: ChatAction;
@@ -78,6 +79,7 @@ export const describeAction = (a: ChatAction): string => {
     case 'inspector': return a.open ? 'Inspector opened' : 'Inspector closed';
     case 'theme': return `Theme: ${a.name}`;
     case 'tour': return a.play ? 'Tour started' : 'Tour stopped';
+    case 'picture': return 'Picture saved';
   }
 };
 
@@ -101,6 +103,7 @@ const intent = (a: ChatAction): string => {
     case 'inspector': return `${a.open ? 'open' : 'close'} the inspector`;
     case 'theme': return `switch to ${a.name}`;
     case 'tour': return `${a.play ? 'start' : 'stop'} the tour`;
+    case 'picture': return 'save a picture';
   }
 };
 
@@ -205,7 +208,9 @@ type Entry =
   | { t: 'set-opacity'; opacity: number } // "transparent", "opaque"
   | { t: 'onoff'; shown: boolean } // "ligands off"
   | { t: 'inspector' }
-  | { t: 'tour' };
+  | { t: 'tour' }
+  | { t: 'save' } // "save", "download": a picture may follow
+  | { t: 'picture'; standalone?: boolean }; // "screenshot" asks by itself; "picture" needs "save" ("show me a picture of..." is a question)
 
 const TABLE = new Map<string, Entry>();
 const add = (phrases: string, entry: Entry) => phrases.split('|').forEach(p => TABLE.set(p, entry));
@@ -263,6 +268,9 @@ add('off', { t: 'onoff', shown: false });
 
 add('inspector|side panel|inspector panel', { t: 'inspector' });
 add('tour|cinematic tour|guided tour|walkthrough|walk through', { t: 'tour' });
+add('save|download|export|capture|grab|snap|take', { t: 'save' });
+add('picture|pictures|image|images|png|photo|photos|pic|pics', { t: 'picture' });
+add('screenshot|screenshots|snapshot|snapshots|screen shot|screen capture|screengrab|screen grab', { t: 'picture', standalone: true });
 
 // Words skipped between "select" and the residues it names ("select residue 25", "focus on A:25")
 const SPEC_SKIP = new Set(['on', 'residue', 'residues', 'res', 'at', 'the', 'to', 'number', 'no']);
@@ -298,6 +306,7 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
   let pendingNumber: number | null = null; // "50% opacity": the number came first
   let awaiting: 'opacity' | 'transparency' | null = null; // "opacity 50": the number follows
   let clearing = false;
+  let saving = false; // "save" / "download": what to save follows
 
   const entryAt = (i: number): [Entry, number] | null => {
     for (let n = Math.min(4, tokens.length - i); n >= 1; n--) {
@@ -491,11 +500,19 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
       case 'tour':
         actions.push({ kind: 'tour', play: verb !== false });
         break;
+      case 'save':
+        saving = true;
+        break;
+      case 'picture':
+        if (!saving && !entry.standalone) return null;
+        if (!actions.some(a => a.kind === 'picture')) actions.push({ kind: 'picture' });
+        saving = false;
+        break;
     }
     if (entry.t !== 'filler' && entry.t !== 'colourword') fresh = false;
     i = next;
   }
 
-  if (pendingNumber !== null || awaiting || clearing || negate || actions.length === 0 || actions.length > 8) return null;
+  if (pendingNumber !== null || awaiting || clearing || negate || saving || actions.length === 0 || actions.length > 8) return null;
   return actions;
 };

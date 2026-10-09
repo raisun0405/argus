@@ -21,13 +21,23 @@ interface StatusBarProps {
   onClearSelection: () => void;
   onOpenPalette: () => void;
   onResetView: () => void;
+  onSavePicture?: () => boolean; // Saves the 3D view as a PNG; false when there is nothing to save yet
 }
 
 const Hint: React.FC<{ keys: string; children: React.ReactNode }> = ({ keys, children }) => (
   <span className="inline-flex items-center gap-1"><Kbd>{keys}</Kbd><span>{children}</span></span>
 );
 
-const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, caption, onClearSelection, onOpenPalette, onResetView }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, caption, onClearSelection, onOpenPalette, onResetView, onSavePicture }) => {
+  // "Picture" says what happened for a moment: saved (a tick), or not yet possible
+  const [saved, setSaved] = React.useState<boolean | null>(null);
+  const savedTimer = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(savedTimer.current), []);
+  const savePicture = () => {
+    setSaved(onSavePicture?.() ?? false);
+    window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSaved(null), 1600);
+  };
   const hoveredResidue = hovered && model ? model.byKey.get(hovered) : null;
   const count = selection.keys.size;
   const ligandCount = model ? model.ligands.filter(l => l.kind === 'ligand').length : 0;
@@ -65,8 +75,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, 
         ) : caption ? (
           <span className="min-w-0 truncate text-ink-muted">{caption}</span>
         ) : (
-          // How a mouse works the view: wide windows with a mouse only
-          <span className="hidden [@media(min-width:768px)_and_(pointer:fine)]:flex items-center gap-3 text-ink-dim">
+          // How a mouse works the view: wide windows with a mouse only. A hint that doesn't fit wraps
+          // onto a hidden second line, so hints drop out whole instead of being cut mid-word.
+          <span className="hidden [@media(min-width:768px)_and_(pointer:fine)]:flex flex-wrap items-center gap-x-3 min-w-0 h-5 overflow-hidden text-ink-dim">
             <Hint keys="Drag">rotate</Hint>
             <Hint keys="Right-drag">pan</Hint>
             <Hint keys="Scroll">zoom</Hint>
@@ -96,6 +107,25 @@ const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, 
         Reset view
         <span className="touch:hidden"><Kbd>R</Kbd></span>
       </button>
+
+      {/* The 3D view as a PNG file: words on wide screens, the camera alone elsewhere */}
+      {onSavePicture && (
+        <button
+          onClick={savePicture}
+          data-save-picture
+          className="flex-shrink-0 flex items-center justify-center gap-1.5 h-5 touch:h-8 touch:w-9 pl-1.5 pr-1 touch:px-0 rounded touch:rounded-md text-ink-muted hover:text-ink-strong hover:bg-chip active:bg-chip transition-colors"
+          title="Save a picture of the 3D view (P)"
+          aria-label="Save a picture of the 3D view"
+        >
+          {saved ? (
+            <svg className="w-[11px] h-[11px] touch:w-[15px] touch:h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+          ) : (
+            <svg className="w-[11px] h-[11px] touch:w-[15px] touch:h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></svg>
+          )}
+          <span className="hidden [@media(min-width:1024px)_and_(pointer:fine)]:inline" aria-live="polite">{saved === null ? 'Picture' : saved ? 'Saved' : 'Not ready'}</span>
+          <span className="hidden [@media(min-width:1024px)_and_(pointer:fine)]:inline"><Kbd>P</Kbd></span>
+        </button>
+      )}
 
       {/* Everything else, in words and in this platform's keys (Ctrl+K, or ⌘K on a Mac) */}
       <button

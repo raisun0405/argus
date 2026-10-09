@@ -166,6 +166,7 @@ const App: React.FC = () => {
       colour('colour-residue', 'Colour by residue type', 'residue', 'amino acid'),
       colour('colour-confidence', 'Colour by model confidence', 'confidence', 'plddt predicted'),
       { id: 'view-reset', title: 'Reset the view', group: 'View', shortcut: 'r', run: () => w()?.resetView() },
+      { id: 'view-picture', title: 'Save a picture of the 3D view', hint: 'A PNG of what is on screen', group: 'View', shortcut: 'p', keywords: 'download image screenshot snapshot png export photo', run: () => { w()?.savePicture(); } },
       { id: 'selection-clear', title: 'Clear the selection', group: 'Selection', shortcut: 'escape', run: () => w()?.clearSelection() },
       { id: 'ws-inspector', title: 'Show or hide the inspector', group: 'Workspace', shortcut: 'i', run: () => w()?.toggleInspector() },
       { id: 'ws-chat', title: 'Show or hide the chat', group: 'Workspace', shortcut: 'b', run: () => setChatOpen(o => !o) },
@@ -225,6 +226,7 @@ const App: React.FC = () => {
       else if (matchesChord(event, 'i')) workspace?.toggleInspector();
       else if (matchesChord(event, 'b')) setChatOpen(open => !open);
       else if (matchesChord(event, 'r')) workspace?.resetView();
+      else if (matchesChord(event, 'p')) workspace?.savePicture();
       else if (matchesChord(event, '1')) workspace?.setVizStyle('cartoon');
       else if (matchesChord(event, '2')) workspace?.setVizStyle('stick');
       else if (matchesChord(event, '3')) workspace?.setVizStyle('sphere');

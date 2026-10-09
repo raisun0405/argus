@@ -92,6 +92,8 @@ export interface WorkspaceCommands {
   setVizStyle: (style: VizStyle) => void;
   setColorScheme: (scheme: string) => void;
   resetView: () => void;
+  /** Save the 3D view as a PNG file (false while there is nothing to save). */
+  savePicture: () => boolean;
   toggleInspector: () => void;
   clearSelection: () => void;
   selectResidues: (query: { chain?: string; from: number; to: number }) => boolean;
@@ -1899,6 +1901,25 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
 
   const handleResetView = () => frameWhole(600); // The same whole view a structure opens on
 
+  /** The 3D view as a PNG file, as it looks now: the canvas alone (labels and legends drawn over it aren't in it). */
+  const savePicture = (): boolean => {
+    if (!viewerInstance || !pdbContent || contentIdRef.current !== structureId) return false;
+    try {
+      viewerInstance.render();
+      const url: unknown = viewerInstance.pngURI();
+      if (typeof url !== 'string' || !url.startsWith('data:image/png')) return false;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `argus-${structureId.toLowerCase()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
   // What the structure is made of, as switchable layers, each with the same control
   const layers: Layer[] = useMemo(() => {
     if (!model) return [];
@@ -2174,6 +2195,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       case 'reset':
         handleResetView();
         return actionDone(action);
+      case 'picture':
+        return savePicture() ? actionDone(action) : actionFailed(action, "the 3D view isn't ready yet");
       case 'select':
         return selectResidues(action) ? actionDone(action) : actionFailed(action, 'this structure has no such residues');
       case 'clear-selection':
@@ -2221,6 +2244,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       setVizStyle,
       setColorScheme: scheme => selectColorScheme(scheme as ColorScheme),
       resetView: handleResetView,
+      savePicture,
       toggleInspector: () => showInspector(phone ? phoneSheet !== 'inspector' : !inspectorOpen),
       clearSelection,
       selectResidues,
@@ -3072,6 +3096,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           onClearSelection={clearSelection}
           onOpenPalette={() => onOpenPalette?.()}
           onResetView={handleResetView}
+          onSavePicture={savePicture}
         />
       )}
     </div>

@@ -20,6 +20,7 @@ const GROUPS: { title: string; items: [keys: string, description: string][] }[] 
       ['b', 'Show or hide the chat'],
       ['i', 'Show or hide the inspector'],
       ['r', 'Reset the view'],
+      ['p', 'Save a picture of the 3D view'],
     ],
   },
   {
