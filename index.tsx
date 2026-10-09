@@ -5,6 +5,10 @@ import App from './App';
 import './index.css';
 import { buildThemeCss } from './themes';
 import { initTheme } from './useTheme';
+import { startErrorReports } from './services/errorReporter';
+
+// A fault in this page's code is reported, so one on the live site doesn't go unseen
+startErrorReports();
 
 // Theme variables are normally inlined into app.html at build time; inject
 // them here only if that step was skipped, then restore the saved theme.

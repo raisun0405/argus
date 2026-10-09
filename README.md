@@ -156,6 +156,8 @@ Other scripts: `npm run typecheck` (TypeScript, strict) and `npm run build` (pro
 | `NVIDIA_NIM_KEY` | For Co-fold | NVIDIA API key for hosted Boltz-2, read only by `api/cofold.ts`. Without it the Co-fold tool stays hidden. |
 | `TAVILY_API_KEY` | For literature | Tavily API key ([app.tavily.com](https://app.tavily.com)), read only by `api/investigate.ts`. Without it Investigate never plans a literature search. |
 | `COFOLD_DAILY_LIMIT` | No | Predictions per day per server instance (default 60). |
+| `RESEND_API_KEY` | No | Error alerts by email: a [Resend](https://resend.com) API key with "Sending access", read only by `api/report.ts`. With `REPORTS_EMAIL`, a new kind of error on the live site is emailed to you. Without them, errors are only written to the server log. |
+| `REPORTS_EMAIL` | No | Where the alerts go. Without a domain of your own on Resend, this must be the address you signed up with. |
 
 The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed variables to client code.
 
@@ -243,6 +245,7 @@ The Edge Functions are the only places the keys live. They enforce:
 - **Input limits:** questions up to 2,000 characters (1,000 for an investigation, whose step results are capped at 7,000); the context and facts the browser sends are capped and sanitised. Co-fold takes up to 1,200 residues, 8 chains and a 60-residue pocket, PDB codes and SMILES only, and builds its own requests from them.
 - **Timeouts and clean errors:** an 18-second limit on the LLM call and 4 minutes on a prediction; upstream error details are logged, never returned.
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.
+- **Error reports:** when the app's own code fails in a browser, a short report goes to `api/report.ts`: the error's message, where in the code, the page's path (not a share link's content) and the build, and nothing else from the page. It is logged and, when set up, emailed to you: each kind of error once, then at most every 6 hours. Ten reports a minute per visitor, at most 10 emails an hour per server instance.
 
 Argus has no accounts and stores nothing on a server. Answers are cached in your browser's
 `localStorage` to save repeat calls, and share links keep their content in the URL fragment.

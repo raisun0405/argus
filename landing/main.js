@@ -1,4 +1,5 @@
 // The landing page (index.html, served at /): its own behaviour and the toolkit and the answer check.
+import './reports.js';
 import { inject } from '@vercel/analytics';
 import './page.js';
 import './sections.js';
