@@ -5,6 +5,17 @@
     <!-- interactive-widget: on Android the keyboard shrinks the page, so the chatbox stays above it -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <title>Argus</title>
+    <meta name="description" content="Ask any protein in plain English. Argus finds the structure, shows it in 3D, and investigates with real tools." />
+    <!-- Link previews (chat apps, social sites); __SITE_URL__ becomes the site's own address when it is built (vite.config.ts) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Argus" />
+    <meta property="og:title" content="Argus — Molecular co-scientist" />
+    <meta property="og:description" content="Ask any protein in plain English. Argus finds the structure, shows it in 3D, and investigates with real tools." />
+    <meta property="og:image" content="__SITE_URL__/social-preview.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Argus: ask any protein, see every side. A protein structure shown in 3D." />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 9 9 23h14Z' fill='none' stroke='%23C43036' stroke-width='2.5' stroke-linejoin='round'/%3E%3Cg fill='%23C43036'%3E%3Ccircle cx='16' cy='9' r='4'/%3E%3Ccircle cx='9' cy='23' r='4'/%3E%3Ccircle cx='23' cy='23' r='4'/%3E%3C/g%3E%3C/svg%3E" />
     <script>
       // Restore the colour theme before first paint; a ?theme= link wins over the saved

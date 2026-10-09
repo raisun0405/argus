@@ -166,6 +166,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 ├── landing/                        # The landing page: 3D stage (three.js), toolkit previews, answer check
 ├── public/landing/                 # The landing page's data (structures, KRAS results) and screenshot
 ├── public/vendor/                  # 3Dmol.js: a copy of 3Dmol.org's build, with its licence
+├── public/social-preview.jpg       # The link-preview image (the landing page's hero)
 ├── app.html, index.tsx, index.css  # The app, served at /app
 ├── App.tsx                         # Workspace layout, resizable panes, shortcuts, share-link loading
 ├── themes.ts, useTheme.ts          # Colour themes (CSS variables)

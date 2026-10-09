@@ -53,6 +53,16 @@ function preloadVisuals(): Plugin {
   };
 }
 
+// Link previews need full addresses: __SITE_URL__ in the pages becomes the project's production address
+// on Vercel (VERCEL_PROJECT_PRODUCTION_URL, set during its builds), and stays relative elsewhere.
+function siteUrl(): Plugin {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  return {
+    name: 'argus-site-url',
+    transformIndexHtml: { order: 'pre', handler: html => html.replace(/__SITE_URL__/g, host ? `https://${host}` : '') },
+  };
+}
+
 // Dev-only bridge for the Vercel Edge functions.
 //
 // Vite serves the SPA but has no idea about `api/*.ts` — those files are
@@ -144,7 +154,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
     },
-    plugins: [react(), themeCss(), appPath(), preloadVisuals(), vercelApiDev(env)],
+    plugins: [react(), themeCss(), appPath(), preloadVisuals(), siteUrl(), vercelApiDev(env)],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
