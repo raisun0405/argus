@@ -155,6 +155,7 @@ const App: React.FC = () => {
       tool('tool-partners', 'Interaction partners', 'partners', 'string complex'),
       tool('tool-similar', 'Find similar structures', 'similar', 'foldseek fold search'),
       tool('tool-alphafold', 'Open the AlphaFold model', 'alphafold', 'predicted structure'),
+      tool('tool-pae', 'Confidence map', 'pae', 'pae predicted aligned error alphafold domains arrangement'),
       style('view-cartoon', 'Shape: cartoon', 'cartoon'),
       style('view-stick', 'Shape: wireframe', 'stick'),
       style('view-sphere', 'Shape: spacefill', 'sphere'),

@@ -39,6 +39,8 @@ import { INTERACTION_LABELS, analyzeInteractions, hasLigands, partnerLabel, type
 import InteractionsPanel, { INTERACTION_COLORS, InteractionsIcon } from './InteractionsPanel';
 import OverlayPanel, { OverlayIcon, OverlayLegend, OverlayMenu, OverlayPicker, type OverlayChoice, type OverlayColour, type OverlayState } from './OverlayPanel';
 import { CUTOFF as OVERLAY_CUTOFF, PAIR_COLORS, computeOverlay, distanceColor, overlayName, rememberOverlay } from '../services/overlayService';
+import ConfidenceMapPanel, { PAE_COLORS, PaeIcon, type PaeState } from './ConfidenceMapPanel';
+import { arrangementWord, betweenMean, boxMean, fetchPae, rememberPae, type PaeBox } from '../services/paeService';
 import { loadStructureText } from '../services/investigation';
 import {
   applyPick,
@@ -99,18 +101,19 @@ export interface WorkspaceCommands {
   selectResidues: (query: { chain?: string; from: number; to: number }) => boolean;
   /** Select an answer's highlights and bring them into view (false if none are in this structure). */
   focusHighlights: (highlights: Highlight[]) => boolean;
-  openTool: (tool: 'pockets' | 'interactions' | 'pathogenicity' | 'overlay' | 'cofold' | 'partners' | 'similar' | 'alphafold') => void;
+  openTool: (tool: 'pockets' | 'interactions' | 'pathogenicity' | 'overlay' | 'cofold' | 'partners' | 'similar' | 'alphafold' | 'pae') => void;
   available: (tool: string) => boolean;
   structureId: string;
   chains: string[];
 }
 
 type VizStyle = 'cartoon' | 'stick' | 'sphere' | 'surface';
-type ColorScheme = 'element' | 'rainbow' | 'hydrophobicity' | 'chain' | 'residue' | 'pathogenicity' | 'confidence' | 'pockets' | 'interactions' | 'overlay';
-type OverlayScheme = 'pathogenicity' | 'pockets' | 'interactions' | 'overlay';
+type ColorScheme = 'element' | 'rainbow' | 'hydrophobicity' | 'chain' | 'residue' | 'pathogenicity' | 'confidence' | 'pockets' | 'interactions' | 'overlay' | 'pae';
+type OverlayScheme = 'pathogenicity' | 'pockets' | 'interactions' | 'overlay' | 'pae';
 
-// Colourings that come with their own panel (Variant Lens, Pocket Radar, Interactions, Overlay); closing one returns to the colouring before it
-const isOverlayScheme = (scheme: ColorScheme): scheme is OverlayScheme => scheme === 'pathogenicity' || scheme === 'pockets' || scheme === 'interactions' || scheme === 'overlay';
+// Colourings that come with their own panel (Variant Lens, Pocket Radar, Interactions, Overlay, the
+// confidence map); closing one returns to the colouring before it
+const isOverlayScheme = (scheme: ColorScheme): scheme is OverlayScheme => scheme === 'pathogenicity' || scheme === 'pockets' || scheme === 'interactions' || scheme === 'overlay' || scheme === 'pae';
 
 const AMINO_ACID_MAP: { [key: string]: string } = {
   ALA: 'Alanine', ARG: 'Arginine', ASN: 'Asparagine', ASP: 'Aspartic Acid',
@@ -129,6 +132,10 @@ const HIGHLIGHT_FADE = 65;
 
 // Highlights with more residues than this are drawn as sticks without the ball overlay
 const MAX_BALL_RESIDUES = 8;
+
+// AlphaFold models up to this size have their confidence map fetched with them (about 1 MB, gzipped,
+// at most), so the chat can use it; bigger ones fetch it when the map is opened
+const PAE_PREFETCH = 1500;
 
 // Overlay: the line drawn for the structure laid over, brighter than the "no partner" grey on dark
 // themes and darker than it on light ones
@@ -230,6 +237,12 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const [overlayRetry, setOverlayRetry] = useState(0);
   const overlayModelRef = useRef<{ model: any; pdb: string } | null>(null); // The model in the viewer, and the file it holds
 
+  // Confidence map: AlphaFold's predicted aligned error for the AlphaFold model on screen, and the two
+  // stretches lit up from it (scored residues in blue, the ones they are lined up on in orange)
+  const [pae, setPae] = useState<{ entryId: string; state: PaeState } | null>(null);
+  const [paeBox, setPaeBox] = useState<PaeBox | null>(null);
+  const [paeRetry, setPaeRetry] = useState(0);
+
   // AlphaFold model view
   const [afToggle, setAfView] = useState<{ accession: string; fromPdb: string } | null>( // Opened from an experimental entry
     () => (initialView?.alphaFold ? { accession: initialView.alphaFold, fromPdb: pdbId.toUpperCase() } : null)
@@ -319,6 +332,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const prevVariantData = useRef<VariantLensData | null>(null);
   const prevPocketData = useRef<PocketPrediction | null>(null);
   const prevOverlay = useRef<{ result: unknown; colour: OverlayColour }>({ result: null, colour: 'distance' });
+  const prevPaeBox = useRef<PaeBox | null>(null);
   const prevThemeId = useRef<string | null>(null);
 
   // Pockets drawn on the structure, and which of them each residue lines (the better-ranked one if two overlap).
@@ -340,6 +354,47 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
 
   // The structure as data: the sequence strip, selection, layers and focus panel all read this one parse
   const model: StructureModel | null = useMemo(() => (pdbContent ? parseStructure(pdbContent) : null), [pdbContent]);
+
+  // The confidence map of the AlphaFold model on screen: fetched when the tool opens, or straight away
+  // for a model of up to PAE_PREFETCH residues, so a question about the model is answered knowing it.
+  // Its rows and columns are the model's residues in order, from its first residue number.
+  const paeModel = afModel && afModel.entryId.toUpperCase() === structureId ? afModel : null;
+  const paeFirst = model?.chains[0]?.residues[0]?.resi ?? 1;
+  const paeWanted = Boolean(paeModel && model) && (colorScheme === 'pae' || (model?.residueCount ?? Infinity) <= PAE_PREFETCH);
+  const paeStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!paeModel || !paeWanted) return;
+    const key = `${paeModel.entryId}|${paeRetry}`;
+    if (paeStarted.current === key) return;
+    paeStarted.current = key;
+    const entryId = paeModel.entryId;
+    setPae({ entryId, state: { status: 'loading' } });
+    fetchPae(paeModel).then(
+      data => {
+        setPae(current => (current?.entryId === entryId ? { entryId, state: data ? { status: 'ready', data } : { status: 'missing' } } : current));
+        rememberPae(entryId, data, paeFirst);
+      },
+      e => setPae(current => (current?.entryId === entryId ? { entryId, state: { status: 'error', error: e instanceof Error ? e.message : String(e) } } : current)),
+    );
+  }, [paeModel?.entryId, paeWanted, paeRetry]);
+  const paeState: PaeState = pae && pae.entryId === paeModel?.entryId ? pae.state : { status: 'loading' };
+  const paeData = paeState.status === 'ready' ? paeState.data : null;
+  // Nothing stays lit up once the map closes or another structure arrives
+  useEffect(() => {
+    if (colorScheme !== 'pae') setPaeBox(null);
+  }, [colorScheme]);
+  useEffect(() => setPaeBox(null), [structureId]);
+  // The stretches lit up on the confidence map, brought into view
+  const zoomToPae = () => {
+    const chain = model?.chains[0];
+    if (!viewerInstance || !chain || !paeBox) return;
+    const lit = (i: number) => (i >= paeBox.scored[0] && i <= paeBox.scored[1]) || (i >= paeBox.aligned[0] && i <= paeBox.aligned[1]);
+    const keys = chain.residues.filter(r => lit(r.resi - paeFirst)).map(r => residueKey(r));
+    if (keys.length === 0) return;
+    try {
+      viewerInstance.zoomTo(toAtomSpec(new Set(keys)), 800, true);
+    } catch (e) {}
+  };
 
   // The sequence strip shows one chain; follow the answer's chain when a new structure arrives
   useEffect(() => {
@@ -928,13 +983,15 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     }
     const complex = isCofoldId(predictedModelId);
     if (predictedModelId && !complex) {
+      // The confidence map stays open from one AlphaFold model to the next; other predictions have none
       const keepOverlay = colorSchemeRef.current === 'pathogenicity' || colorSchemeRef.current === 'interactions'
-        || (colorSchemeRef.current === 'pockets' && pocketsSupported(structureId));
+        || (colorSchemeRef.current === 'pockets' && pocketsSupported(structureId))
+        || (colorSchemeRef.current === 'pae' && Boolean(parseAlphaFoldId(predictedModelId)));
       if (!keepOverlay) {
         setColorScheme('confidence');
         setStructureOpacity(100);
       }
-    } else if (colorSchemeRef.current === 'confidence' || (complex && (colorSchemeRef.current === 'pathogenicity' || colorSchemeRef.current === 'pockets'))) {
+    } else if (colorSchemeRef.current === 'confidence' || colorSchemeRef.current === 'pae' || (complex && (colorSchemeRef.current === 'pathogenicity' || colorSchemeRef.current === 'pockets'))) {
       setColorScheme('element');
       // The opacity rule ran earlier while confidence colouring was still on (full opacity):
       // apply it again so this structure's highlights stand out
@@ -1325,6 +1382,17 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         return d === undefined ? pocketBaseColor : distanceColor(d);
       };
       const overlayFaded = overlayOn && model ? model.chains.map(c => c.chain).filter(c => c !== overlayOn.mainChain) : [];
+
+      // Confidence map: the stretches lit up from it in blue (scored) and orange (lined up on), the rest
+      // in the same grey; with nothing lit up, the model's own per-residue confidence
+      const paeLit = colorScheme === 'pae' ? paeBox : null;
+      const getPaeColor = (atom: any) => {
+        if (!paeLit) return plddtColor(atom.b);
+        const i = atom.resi - paeFirst;
+        if (i >= paeLit.scored[0] && i <= paeLit.scored[1]) return PAE_COLORS.scored;
+        if (i >= paeLit.aligned[0] && i <= paeLit.aligned[1]) return PAE_COLORS.aligned;
+        return pocketBaseColor;
+      };
       const fadedStyle = vizStyle === 'stick' ? { stick: { radius: 0.15, color: pocketBaseColor, opacity: 0.25 } }
         : vizStyle === 'sphere' ? { sphere: { scale: 0.85, color: pocketBaseColor, opacity: 0.25 } }
         : { cartoon: { style: 'oval', thickness: 0.5, color: pocketBaseColor, opacity: 0.25 } };
@@ -1354,6 +1422,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               case 'pockets': return { colorfunc: getPocketColor };
               case 'interactions': return { colorfunc: () => pocketBaseColor };
               case 'overlay': return { colorfunc: getOverlayColor };
+              case 'pae': return { colorfunc: getPaeColor };
               case 'confidence': return { colorfunc: (atom: any) => plddtColor(atom.b) };
               case 'element':
               default: return { colorscheme: 'Jmol' };
@@ -1375,7 +1444,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
                               prevVariantData.current === variantData &&
                               prevPocketData.current === pocketData &&
                               (colorScheme !== 'overlay' || (prevOverlay.current.result === overlayResult && prevOverlay.current.colour === overlayColour)) &&
-                              ((colorScheme !== 'pockets' && colorScheme !== 'overlay') || prevThemeId.current === themeId); // Their grey follows the theme
+                              (colorScheme !== 'pae' || prevPaeBox.current === paeBox) &&
+                              ((colorScheme !== 'pockets' && colorScheme !== 'overlay' && colorScheme !== 'pae') || prevThemeId.current === themeId); // Their grey follows the theme
 
       if (vizStyle === 'surface') {
           const surfaceStyle = {
@@ -1418,6 +1488,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       prevVariantData.current = variantData;
       prevPocketData.current = pocketData;
       prevOverlay.current = { result: overlayResult, colour: overlayColour };
+      prevPaeBox.current = paeBox;
       prevThemeId.current = themeId;
 
       // --- NON-SURFACE STYLING (Cartoon/Stick) ---
@@ -1769,9 +1840,11 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       console.error("Render Loop Error:", e);
     }
   }, [
-    viewerInstance, 
-    stylingTrigger, 
+    viewerInstance,
+    stylingTrigger,
     colorScheme,
+    paeBox,
+    paeFirst,
     showActiveSiteBalls,
     showLigands,
     showSubstrates,
@@ -2019,7 +2092,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     && Boolean(pdbContent) && searchableChains.length > 0 && !loading && !error;
   const showSimilarTool = Boolean(onFindSimilar && pdbContent && searchableChains.length > 0 && !loading && !error);
   const showOverlayTool = Boolean(pdbContent) && searchableChains.length > 0 && !loading && !error;
-  const hasOverlayTools = showLensTool || showPocketTool || showInteractionsTool || showOverlayTool;
+  const showPaeTool = Boolean(paeModel) && Boolean(pdbContent) && !loading && !error; // AlphaFold DB models only
+  const hasOverlayTools = showPaeTool || showLensTool || showPocketTool || showInteractionsTool || showOverlayTool;
 
   // What the Overlay picker offers: the protein's other PDB entries (the chain on show decides which
   // protein in a complex), its AlphaFold model from an experimental entry, the entry an AlphaFold
@@ -2059,7 +2133,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     observer.observe(header);
     if (toolbarRef.current) observer.observe(toolbarRef.current);
     return () => observer.disconnect();
-  }, [inspectorOpen, showAfTool, showLensTool, showPocketTool, showInteractionsTool, showOverlayTool, showPartnersTool, showCofoldTool, showSimilarTool, afView?.fromPdb, entryProteins.length, partnerTargets.length,
+  }, [inspectorOpen, showAfTool, showPaeTool, showLensTool, showPocketTool, showInteractionsTool, showOverlayTool, showPartnersTool, showCofoldTool, showSimilarTool, afView?.fromPdb, entryProteins.length, partnerTargets.length,
     isPredicted, prediction?.meanPlddt, alphaFill?.transplants.length]);
 
   // Residues by number (the palette's "A:25", the chat's "select A:25"): selected and brought into view
@@ -2111,10 +2185,11 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     : tool === 'partners' ? showPartnersTool
     : tool === 'similar' ? showSimilarTool
     : tool === 'alphafold' ? showAfTool
+    : tool === 'pae' ? showPaeTool
     : false;
   const openTool = (tool: ToolName) => {
     setToolMenu(null);
-    if (tool === 'pockets' || tool === 'interactions' || tool === 'pathogenicity') openOverlay(tool);
+    if (tool === 'pockets' || tool === 'interactions' || tool === 'pathogenicity' || tool === 'pae') openOverlay(tool);
     else if (tool === 'overlay') setToolMenu('overlay'); // What to lay over is picked there
     else if (tool === 'cofold') setToolMenu('cofold');
     else if (tool === 'similar') findSimilar();
@@ -2131,6 +2206,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     partners: 'no protein here has interaction data to look up',
     similar: 'there is no protein chain to search with',
     alphafold: 'this entry has no AlphaFold model to open',
+    pae: 'only AlphaFold DB models have a confidence map; open the AlphaFold model first',
   };
 
   // An overlay the chat asked for reports once it is lined up (or why it couldn't be), not when it starts
@@ -2188,7 +2264,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         return actionDone(action);
       case 'close-tool': {
         if (!isOverlayScheme(colorScheme)) return actionFailed(action, 'no tool is open');
-        const name = colorScheme === 'pockets' ? 'Pockets' : colorScheme === 'interactions' ? 'Interactions' : colorScheme === 'overlay' ? 'Overlay' : 'Variant Lens';
+        const name = colorScheme === 'pockets' ? 'Pockets' : colorScheme === 'interactions' ? 'Interactions' : colorScheme === 'overlay' ? 'Overlay' : colorScheme === 'pae' ? 'Confidence map' : 'Variant Lens';
         closeOverlay();
         return actionDone(action, `${name} closed`);
       }
@@ -2287,8 +2363,9 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         if (Array.isArray(view)) camera = view;
       } catch (e) {}
       // An overlay on screen goes in the link as such (the structure laid over, its chains, how it is
-      // drawn), and the colouring under it as the link's colouring
-      const scheme = colorScheme === 'overlay' ? (isOverlayScheme(schemeBeforeOverlay.current) ? 'element' : schemeBeforeOverlay.current) : colorScheme;
+      // drawn), and the colouring under it as the link's colouring; so does the colouring under an open
+      // confidence map (the map itself opens from the toolbar)
+      const scheme = colorScheme === 'overlay' || colorScheme === 'pae' ? (isOverlayScheme(schemeBeforeOverlay.current) ? 'element' : schemeBeforeOverlay.current) : colorScheme;
       const overlay = colorScheme === 'overlay' && overlayTarget && overlayResult
         ? { id: overlayTarget, main: overlayResult.mainChain, other: overlayResult.otherChain, ...(overlayColour === 'pair' ? { colour: 'pair' as const } : {}), ...(overlayShown ? {} : { hidden: true as const }) }
         : undefined;
@@ -2366,6 +2443,19 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     <>
     {/* An open tool docks here, under the selection, rather than floating over the structure or
         waiting at the bottom of the column */}
+    {colorScheme === 'pae' && (
+      <InspectorSection id="pae" title="Confidence map" icon={<PaeIcon />} active open={!foldedTools.includes('pae')} onToggle={toggleTool} onClose={closeOverlay} closeLabel="Close the confidence map">
+        <ConfidenceMapPanel
+          state={paeState}
+          first={paeFirst}
+          box={paeBox}
+          onBox={setPaeBox}
+          onZoom={zoomToPae}
+          onRetry={() => setPaeRetry(n => n + 1)}
+        />
+      </InspectorSection>
+    )}
+
     {colorScheme === 'pathogenicity' && (
       <InspectorSection id="lens" title="Variant Lens" icon={<DnaIcon />} active open={!foldedTools.includes('lens')} onToggle={toggleTool} onClose={closeOverlay} closeLabel="Close Variant Lens">
         <VariantLensPanel
@@ -2458,6 +2548,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           ...(ligandsPresent ? [{ value: 'interactions', label: 'Interactions' }] : []),
           // Opened from the toolbar, where the structure to lay over is picked; listed while it is on
           ...(colorScheme === 'overlay' ? [{ value: 'overlay', label: 'Overlay' }] : []),
+          ...(showPaeTool ? [{ value: 'pae', label: 'Confidence map' }] : []),
         ]}
         opacity={structureOpacity}
         toggles={[
@@ -2489,6 +2580,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
             run: () => (entryProteins.length === 1 ? (openAlphaFold(entryProteins[0].accession), closeSheet()) : setToolMenu('alphafold')),
           }]
         : []),
+    ...(showPaeTool ? [{ key: 'pae', icon: <PaeIcon />, label: 'Confidence map', detail: 'How sure AlphaFold is about where each part sits relative to the others', on: colorScheme === 'pae', run: () => (colorScheme === 'pae' ? closeOverlay() : openOverlay('pae')) }] : []),
     ...(showLensTool ? [{ key: 'lens', icon: <DnaIcon />, label: 'Variant Lens', detail: 'How harmful each mutation is predicted to be, and known disease variants', on: colorScheme === 'pathogenicity', run: () => (colorScheme === 'pathogenicity' ? closeOverlay() : enableLens()) }] : []),
     ...(showPocketTool ? [{ key: 'pockets', icon: <RadarIcon />, label: 'Pockets', detail: 'Where ligands and drugs could bind', on: colorScheme === 'pockets', run: () => (colorScheme === 'pockets' ? closeOverlay() : openOverlay('pockets')) }] : []),
     ...(showInteractionsTool ? [{ key: 'interactions', icon: <InteractionsIcon />, label: 'Interactions', detail: 'What holds each ligand: hydrogen bonds, salt bridges, stacking', on: colorScheme === 'interactions', run: () => (colorScheme === 'interactions' ? closeOverlay() : openOverlay('interactions')) }] : []),
@@ -2666,7 +2758,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         )}
 
         {/* Tools for what is on screen. Labels show while they fit; otherwise icons with tooltips. */}
-        {!phone && (showAfTool || showLensTool || showPocketTool || showInteractionsTool || showOverlayTool || showPartnersTool || showCofoldTool || showSimilarTool) && (
+        {!phone && (showAfTool || showPaeTool || showLensTool || showPocketTool || showInteractionsTool || showOverlayTool || showPartnersTool || showCofoldTool || showSimilarTool) && (
           <div className="relative flex-shrink-0" ref={toolsRef}>
             <div ref={toolbarRef} role="toolbar" aria-label="Tools" className="flex items-center gap-0.5">
               {afView ? (
@@ -2689,6 +2781,22 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
                 />
               ) : null}
               {(afView || showAfTool) && (hasOverlayTools || hasActionTools) && <ToolDivider />}
+              {showPaeTool && (
+                <ToolButton
+                  compact={compactTools}
+                  icon={<PaeIcon className="w-[13px] h-[13px]" />}
+                  label="Confidence map"
+                  title={colorScheme === 'pae'
+                    ? 'Close the confidence map'
+                    : "AlphaFold's confidence map: how sure it is about where each part sits relative to the others"}
+                  active={colorScheme === 'pae'}
+                  onClick={() => {
+                    setToolMenu(null);
+                    if (colorScheme === 'pae') closeOverlay();
+                    else openOverlay('pae');
+                  }}
+                />
+              )}
               {showLensTool && (
                 <ToolButton
                   compact={compactTools}
@@ -2968,7 +3076,34 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         </div>
       )}
 
-      {colorScheme === 'confidence' && (
+      {/* The confidence map with stretches lit up: which colour is which, and what the map says about them */}
+      {colorScheme === 'pae' && paeBox && paeData && (
+        <div className={LEGEND_CARD} data-pae-legend>
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em] mb-2">Confidence map</p>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: PAE_COLORS.scored }}></div>
+              <span className="text-xs font-semibold text-ink tabular-nums">{paeBox.scored[0] + paeFirst}{paeBox.scored[1] !== paeBox.scored[0] ? `–${paeBox.scored[1] + paeFirst}` : ''}</span>
+            </div>
+            {(paeBox.aligned[0] !== paeBox.scored[0] || paeBox.aligned[1] !== paeBox.scored[1]) && (
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: PAE_COLORS.aligned }}></div>
+                <span className="text-xs font-semibold text-ink tabular-nums">{paeBox.aligned[0] + paeFirst}{paeBox.aligned[1] !== paeBox.aligned[0] ? `–${paeBox.aligned[1] + paeFirst}` : ''}</span>
+              </div>
+            )}
+          </div>
+          <p className="mt-2 text-[10px] leading-snug text-ink-dim">
+            {paeBox.aligned[0] === paeBox.scored[0] && paeBox.aligned[1] === paeBox.scored[1]
+              ? `${boxMean(paeData, paeBox.scored, paeBox.aligned).toFixed(1)} Å expected error within, on average.`
+              : (() => {
+                  const e = betweenMean(paeData, paeBox.scored, paeBox.aligned);
+                  return `${e.toFixed(1)} Å expected error between them: ${arrangementWord(e)}.`;
+                })()}
+          </p>
+        </div>
+      )}
+
+      {(colorScheme === 'confidence' || (colorScheme === 'pae' && !paeBox)) && (
         <div className={LEGEND_CARD}>
           <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em] mb-2">Model confidence (pLDDT)</p>
           <div className="space-y-1.5">

@@ -13,7 +13,7 @@ import { parseResidueQuery } from './commands';
 export type Shape = 'cartoon' | 'stick' | 'sphere' | 'surface';
 export type Colouring = 'element' | 'chain' | 'rainbow' | 'hydrophobicity' | 'residue' | 'confidence';
 export type Part = 'highlights' | 'ligands' | 'substrates' | 'metals' | 'waters';
-export type Tool = 'pockets' | 'interactions' | 'pathogenicity' | 'overlay' | 'similar' | 'partners' | 'alphafold' | 'cofold';
+export type Tool = 'pockets' | 'interactions' | 'pathogenicity' | 'overlay' | 'similar' | 'partners' | 'alphafold' | 'cofold' | 'pae';
 
 export type ChatAction =
   | { kind: 'shape'; shape: Shape }
@@ -48,7 +48,7 @@ const COLOUR_NAME: Record<Colouring, string> = {
 };
 const PART_NAME: Record<Part, string> = { highlights: 'Highlights', ligands: 'Ligands', substrates: 'Substrates', metals: 'Metals & ions', waters: 'Waters' };
 const TOOL_NAME: Record<Tool, string> = {
-  pockets: 'Pockets', interactions: 'Interactions', pathogenicity: 'Variant Lens', overlay: 'Overlay', similar: 'Find similar', partners: 'Partners', alphafold: 'the AlphaFold model', cofold: 'Co-fold',
+  pockets: 'Pockets', interactions: 'Interactions', pathogenicity: 'Variant Lens', overlay: 'Overlay', similar: 'Find similar', partners: 'Partners', alphafold: 'the AlphaFold model', cofold: 'Co-fold', pae: 'the confidence map',
 };
 const overlayLabel = (a: Extract<ChatAction, { kind: 'overlay' }>) => (a.with === 'alphafold' ? 'the AlphaFold model' : a.with);
 
@@ -70,6 +70,7 @@ export const describeAction = (a: ChatAction): string => {
         : a.tool === 'partners' ? 'Looking up interaction partners'
         : a.tool === 'cofold' ? 'Co-fold form opened'
         : a.tool === 'alphafold' ? 'AlphaFold model opened'
+        : a.tool === 'pae' ? 'Confidence map opened'
         : `${TOOL_NAME[a.tool]} opened`;
     case 'overlay': return `Overlay: ${overlayLabel(a)}`;
     case 'close-tool': return 'Tool closed';
@@ -251,6 +252,7 @@ add('similar|similar structures|similar proteins|similar folds|foldseek|lookalik
 add('partners|interaction partners|binding partners|string|string partners|protein partners', { t: 'tool', tool: 'partners' });
 add('alphafold|alpha fold|alphafold model|af model|alphafold prediction', { t: 'tool', tool: 'alphafold' });
 add('cofold|co-fold|co fold|cofold form', { t: 'tool', tool: 'cofold' });
+add('confidence map|confidence maps|pae|pae map|pae plot|predicted aligned error|aligned error|error map', { t: 'tool', tool: 'pae' });
 
 add('reset|reset view|reset camera|recentre|re-centre|zoom out|fit|fit to screen|whole|entire|full|home|default view', { t: 'reset' });
 add('centre', { t: 'centre' });

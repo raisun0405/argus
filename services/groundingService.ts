@@ -9,6 +9,7 @@ import { alphaFillFactsLine } from './alphafillService';
 import { cofoldFactsLine, getCofold, isCofoldId } from './cofoldService';
 import { interactionFactsLine } from './interactionService';
 import { overlayFactsLine } from './overlayService';
+import { paeFactsLine } from './paeService';
 import { fetchPdbFile } from './structureFiles';
 
 // --- STRUCTURE FACTS (grounding for /api/analyze) ---
@@ -656,7 +657,7 @@ export const getStructureFacts = async (structureId: string | undefined, query =
   ]);
   const key = factsKey(structureId);
   const hint = facts && key && query ? questionHintLine(hintCache.get(key) ?? [], query)?.slice(0, 500) : null;
-  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
+  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, paeFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
   return lines.length ? lines.join('\n') : null;
 };
 

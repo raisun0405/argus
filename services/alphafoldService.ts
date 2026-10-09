@@ -31,6 +31,7 @@ export interface AlphaFoldModel {
   meanPlddt?: number;
   fractionVeryLow?: number; // Share of residues with pLDDT < 50 (often disordered)
   pdbUrl: string;
+  paeUrl?: string; // The model's confidence map (predicted aligned error), services/paeService.ts
 }
 
 const modelCache = new Map<string, Promise<AlphaFoldModel | null>>();
@@ -71,6 +72,7 @@ export const resolveAlphaFoldModel = (accession: string): Promise<AlphaFoldModel
       meanPlddt: e.globalMetricValue,
       fractionVeryLow: e.fractionPlddtVeryLow,
       pdbUrl: e.pdbUrl,
+      ...(typeof e.paeDocUrl === 'string' ? { paeUrl: e.paeDocUrl } : {}),
     };
   });
   // A guess is used once; the next call asks the API again
