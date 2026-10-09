@@ -136,16 +136,23 @@ const OVERLAY_LINE = { dark: '#f4f4f5', light: '#3f3f46' };
 // Phones: a smaller card in the corner, and none while the sheet is up (the colour is explained there)
 const LEGEND_CARD = 'argus-legend absolute bottom-4 left-4 max-md:bottom-2.5 max-md:left-2.5 z-20 w-56 max-md:w-48 max-w-[calc(100%-2rem)] bg-canvas/90 backdrop-blur-md border border-line rounded-xl shadow-overlay p-3 max-md:p-2.5 animate-argus-fade-in pointer-events-none';
 
-/** 3Dmol.js, which app.html fetches without holding up the page: resolves once it has run. */
-const ready3Dmol = () => new Promise<void>((resolve, reject) => {
+// 3Dmol.js: a copy of 3Dmol.org's build served with the app (public/vendor, licence beside it), so it
+// can't change underneath it. Fetched when the viewer first mounts, once the app is on screen: fetched
+// with the page, it would share a slow connection with the app's own code and hold that up.
+const THREE_DMOL_SRC = '/vendor/3Dmol-2.5.5-4ab374e1.min.js';
+let threeDmol: Promise<void> | null = null;
+
+/** 3Dmol.js, loaded on first use: resolves once it has run (a failed load is tried again next time). */
+const ready3Dmol = () => (threeDmol ??= new Promise<void>((resolve, reject) => {
   if (window.$3Dmol) return resolve();
-  const script = document.querySelector<HTMLScriptElement>('script[data-3dmol]');
-  const failed = () => reject(new Error('3Dmol.js did not load'));
-  // Its load already ran without defining the library, or it failed: nothing more will come
-  if (!script || script.dataset.state) return failed();
-  script.addEventListener('load', () => (window.$3Dmol ? resolve() : failed()), { once: true });
-  script.addEventListener('error', failed, { once: true });
-});
+  const script = document.createElement('script');
+  const failed = () => { threeDmol = null; script.remove(); reject(new Error('3Dmol.js did not load')); };
+  script.src = THREE_DMOL_SRC;
+  script.async = true;
+  script.onload = () => (window.$3Dmol ? resolve() : failed());
+  script.onerror = failed;
+  document.head.appendChild(script);
+}));
 
 const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights, measurements = [], tourHighlights, onFindSimilar, onFindPartners, onCofold, isChatBusy = false, initialView, viewStateRef, onOpenPalette, onAsk, commandsRef, onShowChat, subtitle, actionRequest, onActionsDone, phone = false, headerStart, tourControls }) => {
   const viewerRef = useRef<HTMLDivElement>(null);

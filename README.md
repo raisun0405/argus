@@ -114,7 +114,7 @@ entry and streams while Boltz-2 runs (usually 10–60 s).
 | [Boltz-2](https://github.com/jwohlwend/boltz) via [NVIDIA](https://build.nvidia.com/mit/boltz2) | Co-folding: pose, confidence and affinity | MIT · Passaro, Corso, Wohlwend et al., *bioRxiv* 2025 |
 | [PubChem](https://pubchem.ncbi.nlm.nih.gov) | Molecule names and SMILES for Co-fold | NCBI · Kim et al., *NAR* 2023 |
 | [PLIP](https://plip-tool.biotec.tu-dresden.de) (criteria) | Interaction types and distance and angle thresholds | Salentin et al., *NAR* 2015; Adasme et al., *NAR* 2021 |
-| [3Dmol.js](https://3dmol.csb.pitt.edu) | WebGL molecular viewer | BSD-3 · Rego & Koes, *Bioinformatics* 2015 |
+| [3Dmol.js](https://3dmol.csb.pitt.edu) | WebGL molecular viewer (a copy ships in `public/vendor/`) | BSD-3 · Rego & Koes, *Bioinformatics* 2015 |
 
 AlphaMissense scores are from Cheng et al., *Science* 2023. Predictions shown in Argus (pathogenicity,
 pockets, folds, transplanted ligands, co-folded poses and affinities) are research aids, not experimental
@@ -165,6 +165,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 ├── index.html                      # The landing page, served at / (its scripts and styles in landing/)
 ├── landing/                        # The landing page: 3D stage (three.js), toolkit previews, answer check
 ├── public/landing/                 # The landing page's data (structures, KRAS results) and screenshot
+├── public/vendor/                  # 3Dmol.js: a copy of 3Dmol.org's build, with its licence
 ├── app.html, index.tsx, index.css  # The app, served at /app
 ├── App.tsx                         # Workspace layout, resizable panes, shortcuts, share-link loading
 ├── themes.ts, useTheme.ts          # Colour themes (CSS variables)
