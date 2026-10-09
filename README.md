@@ -81,7 +81,8 @@ structure become two tabs that keep their state as you switch.
 - **Keyboard shortcuts** for the things you do constantly: <kbd>1</kbd>–<kbd>4</kbd> for the visual modes, <kbd>I</kbd> for the inspector, <kbd>B</kbd> for the chat, <kbd>R</kbd> to reset the view, <kbd>Esc</kbd> to clear a selection, <kbd>?</kbd> for the full list.
 
 ### Share
-- **Share links** reopen the exact view on any device: the answer, colouring, visual mode, opacity and camera angle. Everything travels in the link's `#fragment`, which never reaches a server.
+- **Share links** reopen the exact view on any device: the answer, colouring, visual mode, opacity, camera angle, and a structure laid over it (which one, on which chains, how it is drawn). Everything travels in the link's `#fragment`, which never reaches a server.
+- **Pictures**: the camera under the 3D view (or P, or "save a picture" in the chat) saves the view as a PNG at full resolution.
 - **Six colour themes**, monochrome dark by default.
 
 ## How the pieces fit

@@ -7,7 +7,7 @@ import { isCofoldId } from './cofoldService';
 // --- SHAREABLE VIEW LINKS ---
 // "Share" copies a link that reopens the current view: the answer on screen (structure, title,
 // summary, highlights, measurements, tour) and how it is shown (colouring, visual mode, the
-// AlphaFold switch, the camera). Everything travels in the URL fragment, which browsers never send
+// AlphaFold switch, an overlay, the camera). Everything travels in the URL fragment, which browsers never send
 // to a server, so no backend or storage is involved. An opened link goes through the same
 // validation as the AI's replies, and the chat labels it as shared rather than generated.
 
@@ -20,13 +20,25 @@ const MAX_SHARED_SUMMARY = 1500;
 const COLOR_SCHEMES = new Set(['element', 'rainbow', 'hydrophobicity', 'chain', 'residue', 'pathogenicity', 'confidence', 'pockets', 'interactions']);
 const VIZ_STYLES = new Set(['cartoon', 'stick', 'sphere', 'surface']);
 const ACCESSION = /^[A-Z0-9]{6,10}$/;
+const STRUCTURE_ID = /^(?:[1-9][A-Z0-9]{3}|AF-[A-Z0-9]{6,10}-F\d{1,2})$/;
+const CHAIN_ID = /^[A-Za-z0-9]{1,4}$/;
+
+/** Another structure laid over the one on screen (Overlay): which, on which chains, and how it is drawn. */
+export interface SharedOverlay {
+  id: string; // "1AKE", "AF-P69441-F1"
+  main?: string; // The chain of the structure on screen it is laid over
+  other?: string; // Its own chain
+  colour?: 'pair'; // Two colours instead of the distance colouring
+  hidden?: true; // Its layer switched off
+}
 
 export interface SharedViewState {
-  colorScheme?: string;
+  colorScheme?: string; // With an overlay: the colouring under it
   vizStyle?: string;
   alphaFold?: string; // UniProt accession of the AlphaFold model opened from the experimental entry
   opacity?: number; // Structure opacity, 0-100
   camera?: number[]; // 3Dmol getView(): position, zoom and rotation quaternion (8 numbers)
+  overlay?: SharedOverlay;
 }
 
 export interface SharedView {
@@ -62,12 +74,26 @@ const cleanView = (raw: unknown, analysis: ProteinAnalysis): SharedViewState => 
   const camera = Array.isArray(view.camera) && view.camera.length === 8 && view.camera.every(v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e5)
     ? (view.camera as number[]).map(v => Math.round(v * 1e4) / 1e4)
     : undefined;
+  // An overlay names another structure than the one on screen (which is the AlphaFold model when the switch is on)
+  const given = (view.overlay && typeof view.overlay === 'object' ? view.overlay : {}) as Record<string, unknown>;
+  const overlayId = typeof given.id === 'string' ? given.id.toUpperCase() : '';
+  const onScreen = alphaFold ? `AF-${alphaFold}-F1` : analysis.pdbId.toUpperCase();
+  const overlay: SharedOverlay | undefined = STRUCTURE_ID.test(overlayId) && overlayId !== onScreen
+    ? {
+      id: overlayId,
+      ...(typeof given.main === 'string' && CHAIN_ID.test(given.main) ? { main: given.main } : {}),
+      ...(typeof given.other === 'string' && CHAIN_ID.test(given.other) ? { other: given.other } : {}),
+      ...(given.colour === 'pair' ? { colour: 'pair' as const } : {}),
+      ...(given.hidden === true ? { hidden: true as const } : {}),
+    }
+    : undefined;
   return {
     ...(colorScheme ? { colorScheme } : {}),
     ...(vizStyle ? { vizStyle } : {}),
     ...(alphaFold ? { alphaFold } : {}),
     ...(opacity !== undefined ? { opacity } : {}),
     ...(camera ? { camera } : {}),
+    ...(overlay ? { overlay } : {}),
   };
 };
 

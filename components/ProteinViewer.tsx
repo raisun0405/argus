@@ -1806,6 +1806,23 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     } catch (e) {}
   }, [shownSiteKey]);
 
+  // A share link's overlay: laid over once the link's own structure is on screen, on the link's chains,
+  // drawn as it was. The link's camera (set when the structure opened) stays: the overlay doesn't
+  // reframe the view this once.
+  const pendingOverlayRef = useRef(initialView?.overlay ?? null);
+  const keepCameraForOverlayRef = useRef(false);
+  useEffect(() => {
+    const shared = pendingOverlayRef.current;
+    if (!shared || !pdbContent || contentIdRef.current !== structureId || sharedStructureRef.current !== structureId) return;
+    pendingOverlayRef.current = null;
+    keepCameraForOverlayRef.current = Boolean(initialView?.camera);
+    startOverlay(shared.id);
+    setOverlayChains({ ...(shared.main ? { main: shared.main } : {}), ...(shared.other ? { other: shared.other } : {}) });
+    if (shared.colour) setOverlayColour(shared.colour);
+    if (shared.hidden) setOverlayShown(false);
+    if (initialView?.opacity !== undefined) setStructureOpacity(initialView.opacity); // Opening the overlay set it to 100
+  }, [pdbContent, structureId]);
+
   // A structure just laid over, or another chain pair picked: the view takes in both copies of the
   // chain. After Effect 4, which has added the overlay's model by then.
   const framedOverlayRef = useRef<string | null>(null);
@@ -1815,6 +1832,10 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     const key = `${overlayTarget}|${overlayResult.mainChain}|${overlayResult.otherChain}`;
     if (framedOverlayRef.current === key) return;
     framedOverlayRef.current = key;
+    if (keepCameraForOverlayRef.current) { // A share link's overlay: the link's camera frames it already
+      keepCameraForOverlayRef.current = false;
+      return;
+    }
     try {
       viewerInstance.zoomTo({ or: [{ chain: overlayResult.mainChain, hetflag: false }, { chain: overlayResult.shownChain, hetflag: false }] }, 800, true);
     } catch (e) {}
@@ -2265,9 +2286,13 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         const view = viewerInstance?.getView?.();
         if (Array.isArray(view)) camera = view;
       } catch (e) {}
-      // Links don't carry an overlay yet: they keep the colouring under it
+      // An overlay on screen goes in the link as such (the structure laid over, its chains, how it is
+      // drawn), and the colouring under it as the link's colouring
       const scheme = colorScheme === 'overlay' ? (isOverlayScheme(schemeBeforeOverlay.current) ? 'element' : schemeBeforeOverlay.current) : colorScheme;
-      return { colorScheme: scheme, vizStyle, opacity: structureOpacity, ...(afView ? { alphaFold: afView.accession } : {}), ...(camera ? { camera } : {}) };
+      const overlay = colorScheme === 'overlay' && overlayTarget && overlayResult
+        ? { id: overlayTarget, main: overlayResult.mainChain, other: overlayResult.otherChain, ...(overlayColour === 'pair' ? { colour: 'pair' as const } : {}), ...(overlayShown ? {} : { hidden: true as const }) }
+        : undefined;
+      return { colorScheme: scheme, vizStyle, opacity: structureOpacity, ...(afView ? { alphaFold: afView.accession } : {}), ...(camera ? { camera } : {}), ...(overlay ? { overlay } : {}) };
     };
   });
 
