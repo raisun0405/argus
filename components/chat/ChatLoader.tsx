@@ -1,22 +1,27 @@
-import React from 'react';
-import { ThinkingOrb } from 'thinking-orbs';
+import React, { Suspense, lazy } from 'react';
 import { THEMES } from '../../themes';
 import { useTheme } from '../../useTheme';
 import { ORB_STATES, type ChatLook, type LoaderOrb } from './chatLook';
+
+// The orbs' animation comes in its own file, so the app's first screen doesn't wait for it
+const ThinkingOrb = lazy(() => import('thinking-orbs').then(m => ({ default: m.ThinkingOrb })));
 
 /** One of the four orbs, inked for the active theme (light dots on dark themes, dark on light ones). */
 export const Orb: React.FC<{ kind: LoaderOrb; size: 20 | 32 | 64; speed?: number; paused?: boolean; label?: string; className?: string }> = ({ kind, size, speed = 1, paused = false, label, className }) => {
   const [themeId] = useTheme();
   return (
-    <ThinkingOrb
-      state={ORB_STATES[kind]}
-      size={size}
-      speed={speed}
-      paused={paused}
-      theme={THEMES[themeId].colorScheme === 'light' ? 'light' : 'dark'}
-      className={className}
-      {...(label ? { 'aria-label': label } : { 'aria-hidden': true, role: 'presentation' })}
-    />
+    // Until it arrives, an empty space of the orb's size keeps the layout still
+    <Suspense fallback={<span className={className} style={{ display: 'inline-block', width: size, height: size }} aria-hidden="true" />}>
+      <ThinkingOrb
+        state={ORB_STATES[kind]}
+        size={size}
+        speed={speed}
+        paused={paused}
+        theme={THEMES[themeId].colorScheme === 'light' ? 'light' : 'dark'}
+        className={className}
+        {...(label ? { 'aria-label': label } : { 'aria-hidden': true, role: 'presentation' })}
+      />
+    </Suspense>
   );
 };
 

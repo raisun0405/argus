@@ -136,6 +136,17 @@ const OVERLAY_LINE = { dark: '#f4f4f5', light: '#3f3f46' };
 // Phones: a smaller card in the corner, and none while the sheet is up (the colour is explained there)
 const LEGEND_CARD = 'argus-legend absolute bottom-4 left-4 max-md:bottom-2.5 max-md:left-2.5 z-20 w-56 max-md:w-48 max-w-[calc(100%-2rem)] bg-canvas/90 backdrop-blur-md border border-line rounded-xl shadow-overlay p-3 max-md:p-2.5 animate-argus-fade-in pointer-events-none';
 
+/** 3Dmol.js, which app.html fetches without holding up the page: resolves once it has run. */
+const ready3Dmol = () => new Promise<void>((resolve, reject) => {
+  if (window.$3Dmol) return resolve();
+  const script = document.querySelector<HTMLScriptElement>('script[data-3dmol]');
+  const failed = () => reject(new Error('3Dmol.js did not load'));
+  // Its load already ran without defining the library, or it failed: nothing more will come
+  if (!script || script.dataset.state) return failed();
+  script.addEventListener('load', () => (window.$3Dmol ? resolve() : failed()), { once: true });
+  script.addEventListener('error', failed, { once: true });
+});
+
 const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights, measurements = [], tourHighlights, onFindSimilar, onFindPartners, onCofold, isChatBusy = false, initialView, viewStateRef, onOpenPalette, onAsk, commandsRef, onShowChat, subtitle, actionRequest, onActionsDone, phone = false, headerStart, tourControls }) => {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [viewerInstance, setViewerInstance] = useState<any>(null);
@@ -697,13 +708,14 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     };
   };
 
-  // Initialize Viewer (once: React StrictMode runs effects twice in development, which would
-  // otherwise leave a second canvas and WebGL context behind)
+  // Initialize Viewer once 3Dmol.js has arrived (once: React StrictMode runs effects twice in
+  // development, which would otherwise leave a second canvas and WebGL context behind)
   const viewerCreatedRef = useRef(false);
   useEffect(() => {
     if (!viewerRef.current || viewerInstance || viewerCreatedRef.current) return;
-
-    if (window.$3Dmol) {
+    let live = true;
+    ready3Dmol().then(() => {
+      if (!live || viewerCreatedRef.current || !viewerRef.current) return;
       viewerCreatedRef.current = true;
       try {
         const viewer = window.$3Dmol.createViewer(viewerRef.current, {
@@ -718,9 +730,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         console.error("Failed to initialize 3Dmol viewer", e);
         setError("Failed to initialize 3D viewer.");
       }
-    } else {
-      setError("3Dmol.js library not loaded.");
-    }
+    }, () => { if (live) setError("3Dmol.js library not loaded."); });
+    return () => { live = false; };
   }, [viewerInstance]);
 
   // Keep the WebGL background in step with the colour theme
@@ -3000,7 +3011,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         </div>
       )}
 
-      {loading && (
+      {/* Also while 3Dmol.js is still on its way: the structure file can come first */}
+      {(loading || (!viewerInstance && !error)) && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-canvas/85 backdrop-blur-[2px]">
           <div className="flex flex-col items-center gap-3">
              <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand/25 border-t-brand shadow-[0_0_18px_-2px_rgb(var(--c-accent)/0.5)]"></div>

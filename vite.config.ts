@@ -33,6 +33,26 @@ function appPath(): Plugin {
   };
 }
 
+// The landing's WebGL (landing/visuals.js, with three.js) is imported on demand, so the page works
+// without waiting for it; this has the browser start fetching it with the page all the same, rather
+// than once the page's own script has run.
+function preloadVisuals(): Plugin {
+  return {
+    name: 'argus-preload-visuals',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        // Only the landing page: the app's (app.html) is the one with a React root
+        if (!ctx.bundle || html.includes('id="root"')) return;
+        const visuals = Object.values(ctx.bundle).find(c => c.type === 'chunk' && c.facadeModuleId?.replace(/\\/g, '/').endsWith('/landing/visuals.js'));
+        if (!visuals) return;
+        return [{ tag: 'link', attrs: { rel: 'modulepreload', crossorigin: true, href: `/${visuals.fileName}` }, injectTo: 'head' }];
+      },
+    },
+  };
+}
+
 // Dev-only bridge for the Vercel Edge functions.
 //
 // Vite serves the SPA but has no idea about `api/*.ts` — those files are
@@ -124,7 +144,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
     },
-    plugins: [react(), themeCss(), appPath(), vercelApiDev(env)],
+    plugins: [react(), themeCss(), appPath(), preloadVisuals(), vercelApiDev(env)],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

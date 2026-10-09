@@ -1,32 +1,10 @@
-// The landing page (index.html, served at /): its own behaviour, the toolkit and the answer check, the
-// 3D stage behind the hero and the stories, and the ring of liquid metal on the buttons into the app
-// (app.html, served at /app).
+// The landing page (index.html, served at /): its own behaviour and the toolkit and the answer check.
 import { inject } from '@vercel/analytics';
 import './page.js';
 import './sections.js';
-import { startStage } from './stage.js';
 
 inject();
 
-// The 3D stage, if the browser can draw it; otherwise the hero shows a screenshot and the stories their cards
-const root = document.documentElement;
-const webgl = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
-if (!webgl) root.dataset.stage = 'off';
-else {
-  const $ = s => document.querySelector(s);
-  startStage({
-    canvas: $('[data-stage-gl]'),
-    layer: $('[data-stage-labels]'),
-    sections: { ask: $('#ask'), tools: $('#tools'), overlay: $('#overlay'), after: $('#workspace') },
-    slots: { hero: $('[data-slot="hero"]'), ask: $('[data-slot="ask"]'), tools: $('[data-slot="tools"]'), overlay: $('[data-slot="overlay"]') },
-    grab: $('[data-slot="hero"]'),
-    reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
-  }).catch(err => { console.error('The 3D stage could not start', err); root.dataset.stage = 'off'; });
-
-  // The buttons' ring of liquid metal (React and metal-fx), fetched once the page has loaded
-  const hosts = document.querySelectorAll('[data-metal]');
-  const ring = () => import('./metal.js')
-    .then(({ mountMetal }) => hosts.forEach(host => { if (mountMetal(host, { strength: Number(host.dataset.metal) || 1 })) host.classList.add('is-metal'); }))
-    .catch(err => console.warn('The metal ring could not load', err));
-  if (hosts.length) (document.readyState === 'complete' ? ring() : addEventListener('load', ring, { once: true }));
-}
+// Its WebGL (the 3D stage, the buttons' metal ring) is a file of its own, since three.js is most of the
+// page's code: fetched alongside this one (vite.config.ts preloads it), but the page doesn't wait for it
+import('./visuals.js').catch(err => { console.error('The 3D stage could not load', err); document.documentElement.dataset.stage = 'off'; });

@@ -16,7 +16,8 @@
         if (savedTheme) document.documentElement.dataset.theme = savedTheme;
       } catch (e) {}
     </script>
-    <script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+    <!-- 3Dmol.js, the 3D viewer, fetched without holding up the page: the viewer waits for it (ProteinViewer.tsx) -->
+    <script async src="https://3Dmol.org/build/3Dmol-min.js" data-3dmol onload="this.dataset.state = 'loaded'" onerror="this.dataset.state = 'failed'"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
