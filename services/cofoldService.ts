@@ -1,5 +1,5 @@
 import type { CofoldComparison, CofoldContact, CofoldPocket, CofoldRequest, CofoldResult, CofoldScores, Highlight, ProteinAnalysis, ResolvedLigand } from '../types';
-import { memoize } from './http';
+import { FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
 import { fetchPdbFile } from './structureFiles';
 import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { getPrediction } from './esmfoldService';
@@ -51,10 +51,10 @@ let availability: Promise<boolean> | null = null;
 /** Whether this deployment can co-fold (the server has a key). Asked once per session. */
 export const cofoldAvailable = (): Promise<boolean> => {
   availability ??= fetch(API, { signal: AbortSignal.timeout(8000) })
-    .then(r => (r.ok ? r.json() : null))
+    .then(r => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
     .then(json => json?.available === true)
     .catch(() => {
-      availability = null; // Network hiccup: ask again next time
+      availability = null; // A network hiccup, or a request the firewall stopped: ask again next time
       return false;
     });
   return availability;
@@ -682,6 +682,7 @@ export const runCofold = (request: CofoldRequest, onStatus: (status: string) => 
     const timer = setInterval(tick, 1000);
     let text: string;
     let status: number;
+    let stopped = false;
     try {
       const response = await fetch(API, {
         method: 'POST',
@@ -695,12 +696,14 @@ export const runCofold = (request: CofoldRequest, onStatus: (status: string) => 
         signal: AbortSignal.timeout(PREDICTION_TIMEOUT_MS),
       });
       status = response.status;
+      stopped = stoppedByFirewall(response);
       text = await response.text();
     } catch (e: any) {
       throw new Error(e?.name === 'TimeoutError' ? 'no answer from Boltz-2 after 5 minutes' : 'the co-folding server could not be reached');
     } finally {
       clearInterval(timer);
     }
+    if (stopped) throw new Error(FIREWALL_REASON);
     let server: any;
     try {
       server = JSON.parse(text);

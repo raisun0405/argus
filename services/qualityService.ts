@@ -1,4 +1,4 @@
-import { memoize } from './http';
+import { FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
 
 // --- STRUCTURE QUALITY ---
 // How far to trust an experimental model, from its official wwPDB validation report (read by
@@ -63,6 +63,7 @@ export const fetchQuality = (pdbId: string): Promise<QualityReport> =>
       body: JSON.stringify({ id: pdbId.trim().toLowerCase() }),
       signal: AbortSignal.timeout(20_000),
     });
+    if (stoppedByFirewall(res)) throw new Error(FIREWALL_REASON);
     const body = await res.json().catch(() => null);
     if (!res.ok || !body) throw new Error(typeof body?.error === 'string' ? body.error.toLowerCase() : `the server answered ${res.status}`);
     return body as QualityReport;

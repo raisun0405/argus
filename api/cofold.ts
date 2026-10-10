@@ -104,13 +104,14 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = FILE_T
 }
 
 // --- RATE LIMIT ---
-// Best effort, per Edge instance (instances are many and short-lived): a few predictions per visitor,
-// and a daily ceiling per instance. A hard global quota needs shared storage (Upstash Redis, Heroku
-// Redis); see the README. Answers served from the cache below don't count, nor do rejected inputs.
+// Best effort, per Edge instance (instances are many and short-lived): generous per visitor, so anyone
+// trying the app (a comparison runs two predictions) doesn't meet it, and a daily ceiling per instance
+// against a runaway loop. A hard global quota needs shared storage (Upstash Redis, Heroku Redis); see
+// the README. Answers served from the cache below don't count, nor do rejected inputs.
 const WINDOW_MS = 10 * 60_000;
-const PER_WINDOW = 4;
+const PER_WINDOW = 12;
 const DAY_MS = 24 * 3600_000;
-const PER_DAY = 15;
+const PER_DAY = 60;
 const recentRuns = new Map<string, number[]>();
 let instanceDay = { start: Date.now(), runs: 0 };
 
@@ -118,7 +119,7 @@ let instanceDay = { start: Date.now(), runs: 0 };
 function rateLimitWait(visitor: string): number {
   const now = Date.now();
   if (now - instanceDay.start >= DAY_MS) instanceDay = { start: now, runs: 0 };
-  const dailyLimit = Number(process.env.COFOLD_DAILY_LIMIT) || 60;
+  const dailyLimit = Number(process.env.COFOLD_DAILY_LIMIT) || 300;
   if (instanceDay.runs >= dailyLimit) return Math.ceil((instanceDay.start + DAY_MS - now) / 1000);
   const times = (recentRuns.get(visitor) ?? []).filter(t => now - t < DAY_MS);
   const recent = times.filter(t => now - t < WINDOW_MS);
@@ -522,7 +523,7 @@ export default async function handler(req: Request): Promise<Response> {
     const wait = rateLimitWait(visitor);
     if (wait > 0) {
       const later = wait >= 3600 ? `${Math.ceil(wait / 3600)} h` : `${Math.ceil(wait / 60)} min`;
-      return jsonResponse({ error: `Co-folding is limited to a few predictions per visitor; try again in ${later}` }, 429, { 'Retry-After': String(wait) });
+      return jsonResponse({ error: `Co-folding has a limit per visitor, now reached; try again in ${later}` }, 429, { 'Retry-After': String(wait) });
     }
     job = (async () => {
       const built = await buildJob(parsed.source, parsed.ligand, parsed.cofactors, parsed.pocket);

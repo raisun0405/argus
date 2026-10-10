@@ -4,6 +4,7 @@ import { fetchPdbFile } from './structureFiles';
 import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { getPrediction, isEsmFoldId } from './esmfoldService';
 import { getCofold, isCofoldId } from './cofoldService';
+import { FIREWALL_MESSAGE, stoppedByFirewall } from './http';
 import { loadStructureFacts } from './groundingService';
 import { fetchSiftsMapping, loadVariantLens, type SiftsAccession } from './variantService';
 import { loadPockets, pocketsSupported, shownPockets } from './pocketService';
@@ -589,13 +590,14 @@ const post = async (body: object, onRateLimitWait?: (seconds: number) => void): 
   // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one more try
   if (response.status === 502 || response.status === 504) response = await send();
   // The AI is rate-limited: wait as long as it suggests, within reason, and try once more
-  if (response.status === 429) {
+  if (response.status === 429 && !stoppedByFirewall(response)) {
     const suggested = Number(response.headers.get('retry-after'));
     const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(suggested) && suggested > 0 ? Math.ceil(suggested) : 10);
     onRateLimitWait?.(wait);
     await new Promise(r => setTimeout(r, wait * 1000));
     response = await send();
   }
+  if (stoppedByFirewall(response)) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: response.status, firewall: true });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'unknown' }));
     throw Object.assign(new Error(`Investigate API error ${response.status}: ${err?.error || 'unknown'}`), { status: response.status });

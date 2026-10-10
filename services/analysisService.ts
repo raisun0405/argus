@@ -1,5 +1,6 @@
 import { ProteinAnalysis } from "../types";
 import { normalizeAnalysis } from "./normalizeAnalysis";
+import { FIREWALL_MESSAGE, stoppedByFirewall } from "./http";
 
 // --- CACHING (LocalStorage) ---
 // Cache LLM responses client-side so repeat queries are instant and don't
@@ -123,7 +124,7 @@ export const analyzeProteinQuery = async (
     let response = await post();
 
     // Rate limited: wait as long as the server suggests, within reason, and try once more
-    if (response.status === 429) {
+    if (response.status === 429 && !stoppedByFirewall(response)) {
       const suggested = Number(response.headers.get('retry-after'));
       const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(suggested) && suggested > 0 ? Math.ceil(suggested) : 10);
       onRateLimitWait?.(wait);
@@ -131,6 +132,7 @@ export const analyzeProteinQuery = async (
       response = await post();
     }
 
+    if (stoppedByFirewall(response)) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: response.status, firewall: true });
     if (!response.ok) {
       const err = await response.json().catch(() => ({ error: 'unknown' }));
       throw Object.assign(new Error(`Analysis API error ${response.status}: ${err?.error || 'unknown'}`), {

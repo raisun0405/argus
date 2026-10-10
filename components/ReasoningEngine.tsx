@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, TourStep } from '../types';
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
+import { FIREWALL_MESSAGE } from '../services/http';
 import QuizCard from './QuizCard';
 import ThemeSwitcher from './ThemeSwitcher';
 import SimilarStructuresCard from './SimilarStructuresCard';
@@ -631,7 +632,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           role: 'assistant',
           notice: 'error',
           ...(hidden ? {} : { retry: userQuery }),
-          content: error?.status === 429
+          content: error?.firewall
+            ? FIREWALL_MESSAGE
+            : error?.status === 429
             ? "The AI is answering a lot of questions right now (rate limit). Please try again in a minute."
             : "Couldn't complete that analysis. Try rephrasing your query or choosing a different protein."
         }

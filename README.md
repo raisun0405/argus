@@ -161,7 +161,7 @@ Other scripts: `npm run typecheck` (TypeScript, strict) and `npm run build` (pro
 | `NEMOTRON_MODEL` | No | Another Token Factory model ID (default `nvidia/nemotron-3-super-120b-a12b`). |
 | `NVIDIA_NIM_KEY` | For Co-fold | NVIDIA API key for hosted Boltz-2, read only by `api/cofold.ts`. Without it the Co-fold tool stays hidden. |
 | `TAVILY_API_KEY` | For literature | Tavily API key ([app.tavily.com](https://app.tavily.com)), read only by `api/investigate.ts`. Without it Investigate never plans a literature search. |
-| `COFOLD_DAILY_LIMIT` | No | Predictions per day per server instance (default 60). |
+| `COFOLD_DAILY_LIMIT` | No | Predictions per day per server instance (default 300). |
 | `RESEND_API_KEY` | No | Error alerts by email: a [Resend](https://resend.com) API key with "Sending access", read only by `api/report.ts`. With `REPORTS_EMAIL`, a new kind of error on the live site is emailed to you. Without them, errors are only written to the server log. |
 | `REPORTS_EMAIL` | No | Where the alerts go. Without a domain of your own on Resend, this must be the address you signed up with. |
 
@@ -257,8 +257,8 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 
 The Edge Functions are the only places the keys live. They enforce:
 
-- **Origin check:** browsers can call the functions only from the app's own pages, so other websites can't spend its AI quota through their visitors. It doesn't stop a script, which can send any Origin it likes; the rate limits below are what bound that.
-- **Rate limits:** 12 questions a minute per visitor; 6 investigations a minute (two LLM calls each); 4 co-folds per 10 minutes and 15 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
+- **Origin check:** browsers can call the functions only from the app's own pages, so other websites can't spend its AI quota through their visitors. It doesn't stop a script, which can send any Origin it likes. For that, turn on Vercel's Bot Protection (the project's Firewall → Bot Management → Bot Protection, in Challenge mode; every plan has it): clients that aren't browsers are turned away before they reach the functions, visitors' browsers pass without seeing it, and if it ever stops a visitor's request the app asks them to reload the page.
+- **Rate limits:** 12 questions a minute per visitor; 6 investigations a minute (two LLM calls each); 12 co-folds per 10 minutes and 60 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
 - **Input limits:** questions up to 2,000 characters (1,000 for an investigation, whose step results are capped at 7,000); the context and facts the browser sends are capped and sanitised. Co-fold takes up to 1,200 residues, 8 chains and a 60-residue pocket, PDB codes and SMILES only, and builds its own requests from them.
 - **Timeouts and clean errors:** an 18-second limit on the LLM call and 4 minutes on a prediction; upstream error details are logged, never returned.
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.

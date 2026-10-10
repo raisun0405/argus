@@ -1,4 +1,5 @@
-// Small fetch helpers shared by the public-data services (EBI, AlphaFold DB, UniProt).
+// Small fetch helpers shared by the services: the public-data ones (EBI, AlphaFold DB, UniProt) and
+// those that call the site's own functions.
 
 const REQUEST_TIMEOUT_MS = 25000;
 // How long an answer that the data isn't there is believed. A server can say "not found" for a moment
@@ -25,6 +26,17 @@ export const memoize = <T,>(cache: Map<string, Promise<T>>, key: string, load: (
   pending.then(value => { if (isAbsent(value)) setTimeout(evict, absentMs); }, evict);
   return pending;
 };
+
+/**
+ * Whether the hosting's firewall stopped a request to the site's own functions before it reached them.
+ * Vercel's bot check answers with its challenge page instead (403 or 429, HTML) and marks it
+ * x-vercel-mitigated. A browser passes the check when it loads a page, so a reload is the way on.
+ */
+export const stoppedByFirewall = (response: Response) =>
+  response.headers.has('x-vercel-mitigated')
+  || ((response.status === 403 || response.status === 429) && (response.headers.get('content-type') ?? '').includes('text/html'));
+export const FIREWALL_MESSAGE = "The site's check for automated traffic stopped this request. Reload the page, then try again.";
+export const FIREWALL_REASON = "the site's check for automated traffic stopped the request; reload the page, then try again";
 
 /** GET with a timeout. Returns null on 404 (resource genuinely absent). */
 export const fetchOrNull = async (url: string): Promise<Response | null> => {
