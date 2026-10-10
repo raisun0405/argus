@@ -141,7 +141,7 @@ const SequenceBar: React.FC<SequenceBarProps> = ({ model, selection, marks = [],
               i === 0 || (i + 1) % RULER_EVERY === 0 ? (
                 <span
                   key={r.index}
-                  className="absolute text-[9px] leading-3 tabular-nums text-ink-dim"
+                  className="absolute text-[10px] leading-3 tabular-nums text-ink-dim"
                   style={{ left: i * cell, transform: 'translateX(-1px)' }}
                 >
                   {r.resi}

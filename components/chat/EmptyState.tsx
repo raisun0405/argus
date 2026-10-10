@@ -50,7 +50,7 @@ const EmptyState: React.FC<EmptyStateProps> = ({ subject, look, onSend, onMode, 
             className={`group text-left rounded-xl border border-line bg-surface/50 backdrop-blur px-3 enabled:hover:border-line-2 enabled:hover:bg-surface/80 disabled:opacity-55 disabled:cursor-not-allowed transition-colors ${compact ? 'py-2' : 'py-2.5'}`}
           >
             <span className="flex items-center gap-1.5 text-ink-muted group-hover:text-ink-strong transition-colors">{card.icon}</span>
-            <span className="mt-1.5 block text-chat-meta font-medium leading-snug text-ink-strong">{card.title}</span>
+            <span className="mt-1.5 block text-chat-meta font-medium leading-snug text-ink-strong line-clamp-2">{card.title}</span>
             <span className="mt-0.5 block text-[11px] leading-snug text-ink-dim">{card.hint}</span>
           </button>
         ))}

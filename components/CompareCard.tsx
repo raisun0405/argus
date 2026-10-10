@@ -1,4 +1,5 @@
 import React from 'react';
+import { CompareIcon } from './icons';
 import type { CofoldResult, ProteinAnalysis } from '../types';
 import { COMPARE_COLORS, affinityGap, foldText, formatIc50, pIc50, poseConfidence, residueLabel, siteRelation } from '../services/cofoldService';
 
@@ -125,12 +126,12 @@ const CompareCard: React.FC<CompareCardProps> = ({ result, origin, currentStruct
     <div className="mt-4 mb-1 bg-canvas rounded-xl border border-line shadow-quiz overflow-hidden">
       {/* Header */}
       <div className="bg-surface px-4 pt-3 pb-2.5 border-b border-line">
-        <div className="flex items-center justify-between gap-2">
-          <span className="bg-brand/10 text-brand-fg text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-[0.18em] border border-brand/40">
-            Compare
-          </span>
-          <span className="text-[10px] font-medium text-ink-dim">Boltz-2</span>
-        </div>
+        {/* The same heading as the quiz card's "Quick check": the tool's icon and name, the source at the right */}
+        <p className="flex items-center gap-1.5 text-[11px] font-medium text-ink-dim">
+          <CompareIcon size={12} />
+          Compare
+          <span className="ml-auto text-[10px]">Boltz-2</span>
+        </p>
         <p className="mt-1 text-xs text-ink">
           <span className="font-semibold text-ink-strong">{a.ligand.name}</span> vs <span className="font-semibold text-ink-strong">{b.ligand.name}</span> with {a.request.proteinName}
           <span className="text-ink-dim"> · {sourceLabel}</span>

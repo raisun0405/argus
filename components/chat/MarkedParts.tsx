@@ -73,8 +73,9 @@ const MarkedParts: React.FC<MarkedPartsProps> = ({ highlights, live, onFocus }) 
           const row = (
             <>
               <span aria-hidden="true" className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${live ? 'bg-brand-fg' : 'bg-line-2'}`} />
-              <span className="min-w-[30%] flex-1 truncate">{part.name}</span>
-              <span className="min-w-0 max-w-[62%] truncate text-right text-[11.5px] tabular-nums text-ink-dim">{part.where}</span>
+              {/* The name is what the row is for: it keeps at least half the row, the location gives way */}
+              <span className="min-w-[48%] flex-1 truncate">{part.name}</span>
+              <span className="min-w-0 max-w-[50%] truncate text-right text-[11.5px] tabular-nums text-ink-dim">{part.where}</span>
             </>
           );
           return (

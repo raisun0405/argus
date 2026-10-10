@@ -120,8 +120,9 @@ const ThemeSwitcher: React.FC = () => {
                 aria-checked={active}
                 tabIndex={idx === focused ? 0 : -1}
                 onClick={() => pick(t.id)}
-                onMouseEnter={() => setFocused(idx)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 touch:py-2.5 rounded-lg text-left transition-colors focus:outline-none ${
+                // The mouse lights a row by hovering; only the keyboard moves focus (a hover that moved
+                // focus made the arrow keys jump from wherever the pointer happened to rest)
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 touch:py-2.5 rounded-lg text-left transition-colors outline-none hover:bg-chip focus-visible:shadow-[inset_2px_0_0_rgb(var(--c-focus))] ${
                   active ? 'bg-brand/15' : idx === focused ? 'bg-chip' : ''
                 }`}
               >

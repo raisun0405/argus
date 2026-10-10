@@ -74,7 +74,7 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz, onCorrectAnswer }) => {
                 state === 'right' ? 'border-good/45 bg-good/[0.08] text-ink-strong'
                 : state === 'missed' ? 'border-dashed border-good/55 text-ink'
                 : state === 'wrong' ? 'border-bad/45 bg-bad/[0.08] text-ink-strong'
-                : state === 'other' ? 'border-line text-ink-dim opacity-55'
+                : state === 'other' ? 'border-line text-ink-muted' // Quieter, still readable: the explanation refers to them
                 : state === 'picked' ? 'border-line-2 bg-chip/60 text-ink-strong'
                 : 'border-line bg-canvas/30 text-ink hover:border-line-2 hover:bg-chip/40 group'
               }`}

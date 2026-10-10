@@ -198,9 +198,10 @@ export const Switch: React.FC<{ checked: boolean; onChange: (v: boolean) => void
     aria-label={label}
     disabled={disabled}
     onClick={() => onChange(!checked)}
-    className={`relative inline-flex flex-shrink-0 h-[18px] w-[30px] items-center rounded-full transition-colors disabled:opacity-50 ${checked ? 'bg-brand' : 'bg-line-2'}`}
+    className={`relative inline-flex flex-shrink-0 h-[18px] w-[30px] touch:h-6 touch:w-10 items-center rounded-full transition-colors disabled:opacity-50 ${checked ? 'bg-brand' : 'bg-line-2'}`}
   >
-    <span className={`inline-block h-3.5 w-3.5 rounded-full shadow-knob transition-transform ${checked ? 'translate-x-[14px] bg-brand-ink' : 'translate-x-[2px] bg-ink-muted'}`} />
+    {/* A finger-sized track and knob on touch screens, like the inspector's other controls */}
+    <span className={`inline-block h-3.5 w-3.5 touch:h-5 touch:w-5 rounded-full shadow-knob transition-transform ${checked ? 'translate-x-[14px] touch:translate-x-[18px] bg-brand-ink' : 'translate-x-[2px] bg-ink-muted'}`} />
   </button>
 );
 

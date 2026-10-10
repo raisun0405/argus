@@ -113,11 +113,14 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
     const y1 = ((shown.aligned[1] + 1) / data.n) * size;
     const w = Math.max(2 * dpr, x1 - x0);
     const h = Math.max(2 * dpr, y1 - y0);
+    // A halo in the page's own background with a line in its text colour: both stand off the map's
+    // greens in every theme (a fixed dark halo and white line vanished on the light ones)
+    const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim().split(/\s+/).join(', ');
     ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = 'rgba(9, 9, 11, 0.85)';
+    ctx.strokeStyle = `rgba(${token('--c-canvas') || '9, 9, 11'}, 0.85)`;
     ctx.strokeRect(x0, y0, w, h);
     ctx.lineWidth = 1.5 * dpr;
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = `rgb(${token('--c-ink-strong') || '250, 250, 250'})`;
     ctx.strokeRect(x0, y0, w, h);
   }, [image, shown, size, dpr, data]);
 
@@ -191,7 +194,7 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
           {/* Down the side: the residue each row is lined up on */}
           <div className="relative w-7 flex-shrink-0" aria-hidden="true">
             {ticks.map(t => (
-              <span key={t} className="absolute right-0 -translate-y-1/2 text-[9px] touch:text-[11px] tabular-nums text-ink-dim" style={{ top: `${((t - first + 0.5) / d.n) * 100}%` }}>{t}</span>
+              <span key={t} className="absolute right-0 -translate-y-1/2 text-[10px] touch:text-[11px] tabular-nums text-ink-dim" style={{ top: `${((t - first + 0.5) / d.n) * 100}%` }}>{t}</span>
             ))}
           </div>
           <div ref={wrapRef} className="relative min-w-0 flex-1">
@@ -231,7 +234,7 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
         {/* Along the bottom: the residue whose position is scored */}
         <div className="relative h-3.5 touch:h-4 ml-[34px]" aria-hidden="true">
           {ticks.map(t => (
-            <span key={t} className="absolute top-0.5 -translate-x-1/2 text-[9px] touch:text-[11px] tabular-nums text-ink-dim" style={{ left: `${((t - first + 0.5) / d.n) * 100}%` }}>{t}</span>
+            <span key={t} className="absolute top-0.5 -translate-x-1/2 text-[10px] touch:text-[11px] tabular-nums text-ink-dim" style={{ left: `${((t - first + 0.5) / d.n) * 100}%` }}>{t}</span>
           ))}
         </div>
         <p className="mt-1 ml-[34px] text-[10px] touch:text-[12px] text-ink-dim">Across: residue scored · Down: residue lined up on</p>
@@ -241,7 +244,7 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
         <div className="h-2 rounded-sm" style={{ background: gradient }} />
         <div className="relative h-3.5 touch:h-4" aria-hidden="true">
           {SCALE_TICKS.filter(t => t <= d.max).map(t => (
-            <span key={t} className="absolute top-0.5 -translate-x-1/2 first:translate-x-0 text-[9px] touch:text-[11px] tabular-nums text-ink-dim" style={{ left: `${(t / d.max) * 100}%` }}>{t}</span>
+            <span key={t} className="absolute top-0.5 -translate-x-1/2 first:translate-x-0 text-[10px] touch:text-[11px] tabular-nums text-ink-dim" style={{ left: `${(t / d.max) * 100}%` }}>{t}</span>
           ))}
         </div>
         <p className="text-[10px] touch:text-[12px] text-ink-dim">Expected position error (Å)</p>

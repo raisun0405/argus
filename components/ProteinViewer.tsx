@@ -3,6 +3,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Highlight, Measurement, AtomSpec, VariantLensData, VariantSite, SimilarSearchQuery, PocketPrediction, PartnerQuery, CofoldRequest, CofoldResult } from '../types';
 import { extractChain, pickSearchChain, proteinChains } from '../services/foldseekService';
 import Dropdown from './Dropdown';
+import { MoleculeIcon, NetworkIcon, SimilarIcon, SparkIcon } from './icons';
 import VariantLensPanel, { DnaIcon, VariantLensStatus } from './VariantLensPanel';
 import { THEMES } from '../themes';
 import { useTheme } from '../useTheme';
@@ -3117,7 +3118,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               <div className="w-3 h-3 mt-0.5 rounded-sm bg-[#E60A0A] shadow-sm"></div>
               <div>
                 <span className="text-[11px] font-semibold text-ink block leading-none">Acidic (-)</span>
-                <span className="text-[9px] text-ink-dim leading-tight">Asp, Glu</span>
+                <span className="text-[10px] text-ink-dim leading-tight">Asp, Glu</span>
               </div>
             </div>
             {/* Basic */}
@@ -3125,7 +3126,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               <div className="w-3 h-3 mt-0.5 rounded-sm bg-[#3b82f6] shadow-sm"></div>
               <div>
                 <span className="text-[11px] font-semibold text-ink block leading-none">Basic (+)</span>
-                <span className="text-[9px] text-ink-dim leading-tight">Arg, Lys</span>
+                <span className="text-[10px] text-ink-dim leading-tight">Arg, Lys</span>
               </div>
             </div>
              {/* Hydrophobic */}
@@ -3133,7 +3134,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               <div className="w-3 h-3 mt-0.5 rounded-sm bg-[#22c55e] shadow-sm"></div>
               <div>
                 <span className="text-[11px] font-semibold text-ink block leading-none">Hydrophobic</span>
-                <span className="text-[9px] text-ink-dim leading-tight">Leu, Val, Ile, Ala</span>
+                <span className="text-[10px] text-ink-dim leading-tight">Leu, Val, Ile, Ala</span>
               </div>
             </div>
              {/* Polar */}
@@ -3141,7 +3142,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               <div className="w-3 h-3 mt-0.5 rounded-sm bg-[#FA9600] shadow-sm"></div>
               <div>
                 <span className="text-[11px] font-semibold text-ink block leading-none">Polar</span>
-                <span className="text-[9px] text-ink-dim leading-tight">Ser, Thr</span>
+                <span className="text-[10px] text-ink-dim leading-tight">Ser, Thr</span>
               </div>
             </div>
              {/* Cys/Met */}
@@ -3149,7 +3150,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               <div className="w-3 h-3 mt-0.5 rounded-sm bg-[#E6E600] shadow-sm"></div>
               <div>
                 <span className="text-[11px] font-semibold text-ink block leading-none">Sulfur</span>
-                <span className="text-[9px] text-ink-dim leading-tight">Cys, Met</span>
+                <span className="text-[10px] text-ink-dim leading-tight">Cys, Met</span>
               </div>
             </div>
           </div>
@@ -3287,7 +3288,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-canvas/85 backdrop-blur-[2px]">
           <div className="flex flex-col items-center gap-3">
              <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand/25 border-t-brand shadow-[0_0_18px_-2px_rgb(var(--c-accent)/0.5)]"></div>
-             <p className="text-sm font-medium text-ink tracking-tight">Rendering Structure...</p>
+             <p className="text-sm font-medium text-ink tracking-tight">Drawing the structure…</p>
           </div>
         </div>
       )}
@@ -3493,22 +3494,8 @@ const ToolMenu = ({ title, items, onPick }: { title: string; items: { key: strin
   </div>
 );
 
-const NetworkIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="3.5" r="1.8"/><circle cx="4.5" cy="18.5" r="1.8"/><circle cx="19.5" cy="18.5" r="1.8"/><path d="M12 9.5V5.3M9.9 13.4l-4 3.6M14.1 13.4l4 3.6"/></svg>
-);
-
-const MoleculeIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3.5 15 7v7l-6 3.5L3 14V7z"/><path d="m15 14 3.6 2.2"/><circle cx="20.4" cy="17.6" r="2.1"/></svg>
-);
-
-const SparkIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
-);
-
-// "Find similar": two overlapping shapes. The magnifier already means "search commands" in the top bar.
-const SimilarIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>
-);
+// The tool icons (NetworkIcon, MoleculeIcon, SparkIcon, SimilarIcon) live in icons.tsx, shared with
+// the chat cards that show the tools' results
 
 // The inspector's section icons (14px, drawn on a 24px grid)
 const sectionIcon = (children: React.ReactNode) => (

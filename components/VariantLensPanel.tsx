@@ -144,7 +144,7 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
         <div className="flex items-center gap-1.5 min-w-0">
           <DnaIcon className="w-3.5 h-3.5 text-brand-fg flex-shrink-0" />
           <span className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Variant Lens</span>
-          <span className="text-[9px] font-medium text-ink-dim truncate">· AlphaMissense</span>
+          <span className="text-[10px] font-medium text-ink-dim truncate">· AlphaMissense</span>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
@@ -182,7 +182,7 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
                 onClick={onRetry}
                 className="px-2.5 py-1 rounded-md border border-line bg-input text-[11px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
               >
-                Retry
+                Try again
               </button>
             </div>
           )}
@@ -228,7 +228,7 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
                           <div className="text-xs font-semibold tabular-nums text-ink">
                             {Math.round((100 * p.pathogenicResidues) / p.mappedResidues)}%
                           </div>
-                          <div className="text-[10px] text-ink-dim">Likely path.</div>
+                          <div className="text-[10px] text-ink-dim">Likely harmful</div>
                         </>
                       ) : (
                         <span className="text-[10px] text-ink-dim">{p.available ? 'Not observed' : 'No AM data'}</span>
@@ -281,7 +281,7 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
                             style={{ background: h.score !== undefined ? amColor(h.score) : AM_NO_DATA_COLOR }}
                           />
                           {h.label}
-                          {h.extra > 0 && <span className="text-[9px] text-ink-dim">+{h.extra}</span>}
+                          {h.extra > 0 && <span className="text-[10px] text-ink-dim">+{h.extra}</span>}
                         </button>
                       );
                     })}
@@ -296,14 +296,14 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
               )}
 
               {mismatchCount > 0 && (
-                <p className="text-[10px] leading-snug text-warn/80">
+                <p className="text-[10px] leading-snug text-warn">
                   {mismatchCount} residue{mismatchCount > 1 ? 's' : ''} in this structure differ{mismatchCount > 1 ? '' : 's'} from the UniProt
-                  sequence (engineered or disease mutant) — hover to see which.
+                  sequence (engineered or disease mutant) — <span className="touch:hidden">hover over</span><span className="hidden touch:inline">tap</span> a residue in 3D to see which.
                 </p>
               )}
 
               {/* Attribution & caveat */}
-              <p className="pt-2 border-t border-line text-[9px] leading-snug text-ink-dim">
+              <p className="pt-2 border-t border-line text-[10px] leading-snug text-ink-dim">
                 Predictions, not diagnoses — not for clinical use. AlphaMissense (Cheng et al., Science 2023) via{' '}
                 <a href="https://alphafold.ebi.ac.uk/" target="_blank" rel="noreferrer" className="underline decoration-line-2 hover:text-brand-text">AlphaFold DB</a>
                 {' '}· CC BY 4.0 · variants from UniProt · mapping by PDBe SIFTS.

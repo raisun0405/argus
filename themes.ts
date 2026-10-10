@@ -31,7 +31,7 @@ export interface ThemeColors {
   ink: string; // Body text
   inkStrong: string; // Headings
   inkMuted: string; // Labels
-  inkDim: string; // Hints, placeholders
+  inkDim: string; // Hints, placeholders: the quietest text, still 4.5:1 (WCAG AA) on every surface above
   brand: string; // Accent fills (buttons, user bubble, toggles)
   brandDark: string; // Pressed / hover fill
   brandFg: string; // Accent used as text and 3D highlights — readable on the canvas
@@ -77,7 +77,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       ink: '#E4E4E7', // zinc-200
       inkStrong: '#FAFAFA', // zinc-50
       inkMuted: '#A1A1AA', // zinc-400
-      inkDim: '#71717A', // zinc-500
+      inkDim: '#8D8D94', // Between zinc-500 and 400: the dimmest grey that still reads on a chip (4.5:1)
       brand: '#FAFAFA', // In a monochrome UI the accent is light-on-dark
       brandDark: '#D4D4D8',
       brandFg: '#FAFAFA',
@@ -147,7 +147,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       ink: '#E8E9E3',
       inkStrong: '#FFFFFF',
       inkMuted: '#8B8E84',
-      inkDim: '#6F726A',
+      inkDim: '#858881', // Lifted until it reads on a chip (4.5:1)
       brand: '#C8F135',
       brandDark: '#A9D61C',
       brandFg: '#C8F135',
@@ -181,8 +181,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       line2: '#D4D4D8',
       ink: '#27272A',
       inkStrong: '#09090B',
-      inkMuted: '#71717A',
-      inkDim: '#A1A1AA',
+      inkMuted: '#52525B', // zinc-600: labels read on the canvas too (zinc-500 fell just short there)
+      inkDim: '#6F6F75', // zinc-500, nudged until it reads on every surface
       brand: '#18181B',
       brandDark: '#000000',
       brandFg: '#18181B',
@@ -216,8 +216,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       line2: '#CFD2C8',
       ink: '#1F201C',
       inkStrong: '#0B0B0A',
-      inkMuted: '#767970',
-      inkDim: '#A9AD9F',
+      inkMuted: '#50524C', // Darkened until labels read on the chip (6.5:1)
+      inkDim: '#686A62', // ...and hints too (4.5:1)
       brand: '#C8F135',
       brandDark: '#A9D61C',
       // Lime is near-invisible as text on white, so text and highlights use a
@@ -253,8 +253,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       line2: '#D9C8B5',
       ink: '#292524',
       inkStrong: '#0C0A09',
-      inkMuted: '#857D74',
-      inkDim: '#A99C8E',
+      inkMuted: '#4E4A44', // Darkened until labels read on the chip (6.5:1)
+      inkDim: '#696158', // ...and hints too (4.5:1)
       brand: '#F4772F',
       brandDark: '#D95F18',
       brandFg: '#C2410C',

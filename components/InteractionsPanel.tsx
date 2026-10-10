@@ -64,7 +64,7 @@ const InteractionsPanel: React.FC<InteractionsPanelProps> = ({ sites, selected, 
         <div className="flex items-center gap-1.5 min-w-0">
           <InteractionsIcon className="w-3.5 h-3.5 text-brand-fg flex-shrink-0" />
           <span className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Interactions</span>
-          {selected && <span className="text-[9px] font-medium text-ink-dim truncate">· {siteLabel(selected, names)}</span>}
+          {selected && <span className="text-[10px] font-medium text-ink-dim truncate">· {siteLabel(selected, names)}</span>}
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button

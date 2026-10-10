@@ -115,10 +115,10 @@ export const PromptLibraryPanel: React.FC<PromptLibraryPanelProps> = ({ subject,
               type="button"
               data-prompt={p.title}
               onClick={() => onPick(p)}
-              className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-chip/60 focus-visible:bg-chip/60 outline-none transition-colors group"
+              className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-chip/60 focus-visible:bg-chip/60 focus-visible:shadow-[inset_2px_0_0_rgb(var(--c-focus))] outline-none transition-colors group"
             >
               <span className="flex items-center gap-2">
-                <span className="text-[12px] font-medium text-ink-strong">{p.title}</span>
+                <span className="min-w-0 truncate text-[12px] font-medium text-ink-strong">{p.title}</span>
                 {p.isNew && (metal ? <Suspense fallback={newBadge}><MetalBadge>New</MetalBadge></Suspense> : newBadge)}
               </span>
               <span className="block mt-0.5 text-[11px] leading-snug text-ink-dim group-hover:text-ink-muted truncate">

@@ -187,7 +187,9 @@ const App: React.FC = () => {
       // The landing page, in a new tab, so the session here stays as it is
       { id: 'help-about', title: 'About Argus', hint: 'What it does and how, in a new tab', group: 'Help', keywords: 'home landing page website project', run: () => window.open('/', '_blank', 'noopener') },
     ];
-  }, [currentAnalysis, setTheme]);
+    // Rebuilt each time the palette opens: which tools are available is only known once the viewer
+    // has registered (after the first render) and has the structure's file
+  }, [currentAnalysis, setTheme, paletteOpen]);
 
   // Typing a residue in the palette offers to go there
   const dynamicResults = useMemo(

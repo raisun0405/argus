@@ -319,7 +319,7 @@ const OverlayPanel: React.FC<OverlayPanelProps> = ({ state, sourceLabel, colour,
                       data-overlay-change={c.label}
                       onClick={() => onFocus([c.key])}
                       title={`${c.label}: ${c.from} here, ${c.to} in ${state.name}`}
-                      className="underline decoration-line-2 underline-offset-2 hover:text-brand-text hover:decoration-brand/50 transition-colors"
+                      className="-mx-0.5 px-1 py-0.5 touch:px-1.5 touch:py-1.5 rounded underline decoration-line-2 underline-offset-2 hover:bg-chip/60 hover:text-brand-text hover:decoration-brand/50 transition-colors"
                     >
                       {c.label} {c.from}→{c.to}
                     </button>

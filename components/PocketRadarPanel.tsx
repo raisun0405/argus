@@ -68,7 +68,7 @@ const PocketRadarPanel: React.FC<PocketRadarPanelProps> = ({
         <div className="flex items-center gap-1.5 min-w-0">
           <RadarIcon className="w-3.5 h-3.5 text-brand-fg flex-shrink-0" />
           <span className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Pocket Radar</span>
-          <span className="text-[9px] font-medium text-ink-dim truncate">· P2Rank</span>
+          <span className="text-[10px] font-medium text-ink-dim truncate">· P2Rank</span>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
@@ -126,7 +126,7 @@ const PocketRadarPanel: React.FC<PocketRadarPanelProps> = ({
                 onClick={onRetry}
                 className="px-2.5 py-1 rounded-md border border-line bg-input text-[11px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
               >
-                Retry
+                Try again
               </button>
             </div>
           )}
@@ -163,7 +163,7 @@ const PocketRadarPanel: React.FC<PocketRadarPanelProps> = ({
                         )}
                         <span className="ml-auto text-xs font-semibold tabular-nums text-ink">{percent}%</span>
                       </div>
-                      <div className="mt-1 ml-[18px] hidden sm:flex items-center gap-2">
+                      <div className="mt-1 ml-[18px] flex items-center gap-2">
                         <div className="flex-1 h-1 rounded-full bg-line overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${Math.max(percent, 2)}%`, background: POCKET_COLORS[i] }} />
                         </div>
@@ -186,22 +186,23 @@ const PocketRadarPanel: React.FC<PocketRadarPanelProps> = ({
                 </button>
               )}
 
-              <div className="flex items-start justify-end sm:justify-between gap-3">
-                <p className="hidden sm:block text-[10px] leading-snug text-ink-dim">
-                  % = predicted probability of binding a ligand
-                  {hidden > 0 && ` · ${hidden} weaker pocket${hidden > 1 ? 's' : ''} not shown`}. Click a pocket to focus it.
-                </p>
-                <button
-                  onClick={onToggleSurface}
-                  className="flex-shrink-0 px-2 py-0.5 touch:px-3 touch:py-2 rounded-md border border-line bg-input text-[10px] touch:text-[12.5px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
-                  title={isSurface ? 'Back to the cartoon view' : 'Show the molecular surface, where pockets appear as coloured cavities'}
-                >
-                  {isSurface ? 'Cartoon view' : 'Surface view'}
-                </button>
-              </div>
+              {/* The panel sits in a narrow column (the inspector, or a phone's sheet), so the button
+                  takes a row of its own, like the Co-fold one above, and the note runs full width */}
+              <button
+                onClick={onToggleSurface}
+                className="w-full px-2.5 py-1.5 rounded-md border border-line bg-input text-[11px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
+                title={isSurface ? 'Back to the cartoon view' : 'Show the molecular surface, where pockets appear as coloured cavities'}
+              >
+                {isSurface ? 'Cartoon view' : 'Surface view'}
+              </button>
+              <p className="text-[10px] leading-snug text-ink-dim">
+                % = predicted probability of binding a ligand
+                {hidden > 0 && ` · ${hidden} weaker pocket${hidden > 1 ? 's' : ''} not shown`}.{' '}
+                <span className="touch:hidden">Click</span><span className="hidden touch:inline">Tap</span> a pocket to focus it.
+              </p>
 
               {data.model === 'quick' ? (
-                <p className="text-[10px] leading-snug text-warn/80">
+                <p className="text-[10px] leading-snug text-warn">
                   Quick model (without conservation). PrankWeb's conservation-aware prediction replaces it automatically if it finishes while this panel is open.
                 </p>
               ) : upgraded ? (
@@ -209,7 +210,7 @@ const PocketRadarPanel: React.FC<PocketRadarPanelProps> = ({
               ) : null}
 
               {/* Attribution & caveat */}
-              <p className="pt-2 border-t border-line text-[9px] leading-snug text-ink-dim">
+              <p className="pt-2 border-t border-line text-[10px] leading-snug text-ink-dim">
                 Predicted pockets, not confirmed binding sites. P2Rank{data.p2rankVersion ? ` ${data.p2rankVersion}` : ''}
                 {data.model === 'conservation' ? ' with conservation' : ''} via{' '}
                 <a href={data.url} target="_blank" rel="noreferrer" className="underline decoration-line-2 hover:text-brand-text">PrankWeb</a>

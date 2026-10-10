@@ -1,4 +1,5 @@
 import React from 'react';
+import { MoleculeIcon } from './icons';
 import type { CofoldResult, ProteinAnalysis } from '../types';
 import { contactLabel, formatIc50, pIc50, poseConfidence } from '../services/cofoldService';
 import { LIGAND_NAMES } from '../services/alphafillService';
@@ -54,13 +55,12 @@ const CofoldCard: React.FC<CofoldCardProps> = ({ result, origin, currentStructur
     <div className="mt-4 mb-1 bg-canvas rounded-xl border border-line shadow-quiz overflow-hidden">
       {/* Header */}
       <div className="bg-surface px-4 pt-3 pb-2.5 border-b border-line">
-        <div className="flex items-center justify-between gap-2">
-          {/* Same feature chip as the quiz card's "Quick Check" */}
-          <span className="bg-brand/10 text-brand-fg text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-[0.18em] border border-brand/40">
-            Co-fold
-          </span>
-          <span className="text-[10px] font-medium text-ink-dim">Boltz-2</span>
-        </div>
+        {/* The same heading as the quiz card's "Quick check": the tool's icon and name, the source at the right */}
+        <p className="flex items-center gap-1.5 text-[11px] font-medium text-ink-dim">
+          <MoleculeIcon size={12} />
+          Co-fold
+          <span className="ml-auto text-[10px]">Boltz-2</span>
+        </p>
         <p className="mt-1 text-xs text-ink">
           <span className="font-semibold text-ink-strong">{ligand.name}</span> with {request.proteinName}
           <span className="text-ink-dim"> · {sourceLabel}</span>
@@ -70,17 +70,17 @@ const CofoldCard: React.FC<CofoldCardProps> = ({ result, origin, currentStructur
       {/* Scores */}
       <div className="grid grid-cols-3 divide-x divide-line border-b border-line">
         <div className="px-3 py-2.5" title="How sure Boltz-2 is about where and how the molecule sits: its confidence in the protein-ligand interface (ipTM, 0-1). Above 0.8 is usually right; below 0.6 often wrong.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.14em]">Pose</p>
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Pose</p>
           <p className={`mt-0.5 text-sm font-semibold ${confidence ? CONFIDENCE[confidence].tone : 'text-ink'}`}>{confidence ? CONFIDENCE[confidence].label : '—'}</p>
           <p className="text-[10px] text-ink-dim tabular-nums">{iptm !== null ? `ipTM ${iptm.toFixed(2)}` : 'no score'}</p>
         </div>
         <div className="px-3 py-2.5" title="Boltz-2's estimate of the IC50, the concentration that halves the protein's activity (lower binds tighter). Useful for comparing molecules; not a measurement.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.14em]">Affinity</p>
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Affinity</p>
           <p className="mt-0.5 text-sm font-semibold text-ink-strong tabular-nums">{affinity ? `≈ ${formatIc50(affinity.log10Ic50)}` : '—'}</p>
           <p className="text-[10px] text-ink-dim tabular-nums">{affinity ? `IC50 · pIC50 ${pIc50(affinity.log10Ic50).toFixed(1)}` : 'not predicted'}</p>
         </div>
         <div className="px-3 py-2.5" title="Boltz-2's probability that this molecule is a real binder rather than an inactive look-alike, as in screening for hits.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.14em]">Binder</p>
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Binder</p>
           <p className="mt-0.5 text-sm font-semibold text-ink-strong tabular-nums">{affinity ? `${Math.round(affinity.binderProbability * 100)}%` : '—'}</p>
           <p className="text-[10px] text-ink-dim">probability</p>
         </div>

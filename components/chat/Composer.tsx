@@ -78,10 +78,10 @@ const Composer: React.FC<ComposerProps> = ({ value, onChange, onSubmit, busy, wo
     <div
       className={`relative flex flex-col transition-colors ${
         look.composer === 'halo'
-          ? `rounded-2xl bg-surface/55 backdrop-blur-xl border ${focused ? 'border-line-2' : 'border-line'}`
+          ? `rounded-2xl bg-surface/55 backdrop-blur-xl border ${focused ? 'border-ink-dim/70' : 'border-line'}`
           : look.composer === 'metal'
-            ? `rounded-2xl bg-elevated border ${focused ? 'border-line-2' : 'border-line'} shadow-float`
-            : `rounded-2xl bg-input/90 backdrop-blur border ${focused ? 'border-line-2' : 'border-line hover:border-line-2'} shadow-float`
+            ? `rounded-2xl bg-elevated border ${focused ? 'border-ink-dim/70' : 'border-line'} shadow-float`
+            : `rounded-2xl bg-input/90 backdrop-blur border ${focused ? 'border-ink-dim/70' : 'border-line hover:border-line-2'} shadow-float`
       }`}
     >
       {/* The halo: a warm-to-violet glow along the bottom rim, stronger while focused */}

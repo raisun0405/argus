@@ -147,7 +147,7 @@ const Dropdown: React.FC<DropdownProps> = ({ value, options, onChange, ariaLabel
         aria-label={ariaLabel}
         data-value={value}
         onClick={() => setOpen(o => !o)}
-        className={`w-full bg-input border text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 cursor-pointer transition-colors text-left flex items-center gap-2 ${
+        className={`w-full bg-input border text-ink cursor-pointer transition-colors text-left flex items-center gap-2 ${
           small ? 'h-[28px] touch:h-10 pl-3 pr-6 rounded-md text-[11.5px] touch:text-[13.5px] font-medium' : 'pl-2 pr-6 py-1.5 touch:py-2.5 rounded-lg text-xs touch:text-[13.5px] font-semibold'
         } ${open ? 'border-line-2 bg-chip/40' : 'border-line hover:border-line-2'}`}
       >
@@ -198,7 +198,8 @@ const Dropdown: React.FC<DropdownProps> = ({ value, options, onChange, ariaLabel
                   onClick={() => selectAndClose(opt.value)}
                   onMouseEnter={() => setFocusedIndex(idx)}
                   className={`w-full text-left px-2 py-1.5 touch:px-3 touch:py-3 rounded-md transition-colors flex items-center gap-2 ${
-                    isFocused ? 'bg-chip text-ink-strong' : isSelected ? 'bg-chip/50 text-ink-strong' : 'text-ink'
+                    // The list's cursor: a lit row with a bar at its edge, since the fill alone is faint
+                    isFocused ? 'bg-chip text-ink-strong shadow-[inset_2px_0_0_rgb(var(--c-focus))]' : isSelected ? 'bg-chip/50 text-ink-strong' : 'text-ink'
                   }`}
                 >
                   {opt.swatch && <Swatch background={opt.swatch} />}

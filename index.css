@@ -79,12 +79,13 @@ html, body {
   outline-offset: 1px;
   border-radius: 3px;
 }
-/* ...except inside a menu, where the focused row is lit, as menus show it */
+/* ...except inside a menu, where the focused row is lit, as menus show it, with a bar at its left
+   edge so the keyboard's place is plain even where the fill barely differs from the panel */
 [data-composer-menu-panel] [role^="menuitem"]:focus-visible {
   outline: none;
   border-radius: 0.5rem;
   background-color: rgb(var(--c-chip) / 0.7);
-  box-shadow: inset 0 0 0 1px rgb(var(--c-line-2));
+  box-shadow: inset 2px 0 0 rgb(var(--c-focus)), inset 0 0 0 1px rgb(var(--c-line-2));
 }
 
 /* The workspace owns the window: no page-level scrolling or rubber-banding */

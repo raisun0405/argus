@@ -25,7 +25,7 @@ const Bar = ({ ranges, length, label }: { ranges: Range[]; length: number; label
         <span key={a} className="absolute inset-y-0 bg-brand" style={{ left: `${((a - 1) / length) * 100}%`, width: `${Math.max(0.6, ((b - a + 1) / length) * 100)}%` }} />
       ))}
     </div>
-    <div className="flex justify-between mt-0.5 text-[9px] touch:text-[11px] tabular-nums text-ink-dim" aria-hidden="true">
+    <div className="flex justify-between mt-0.5 text-[10px] touch:text-[11px] tabular-nums text-ink-dim" aria-hidden="true">
       <span>1</span>
       <span>{length}</span>
     </div>
@@ -44,7 +44,8 @@ const RangeButtons = ({ ranges, kind, onSelect }: { ranges: Range[]; kind: strin
             data-coverage-range={`${kind}:${rangeText(r)}`}
             onClick={() => onSelect(r)}
             title={`Select residues ${rangeText(r)} and bring them into view`}
-            className="underline decoration-line-2 underline-offset-2 hover:text-brand-text hover:decoration-brand/50 transition-colors"
+            // Padding gives each one something to hit between its neighbours, on a finger above all
+            className="-mx-0.5 px-1 py-0.5 touch:px-1.5 touch:py-1.5 rounded underline decoration-line-2 underline-offset-2 hover:bg-chip/60 hover:text-brand-text hover:decoration-brand/50 transition-colors"
           >
             {rangeText(r)}
           </button>

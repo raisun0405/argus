@@ -103,11 +103,18 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   const audioCtxRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  // SCROLL: Ensure we scroll when messages change OR when loading state/phase changes. Only the
-  // conversation scrolls: scrollIntoView would also nudge every scrollable ancestor.
+  // SCROLL: the conversation follows new messages and loader changes, but only while the reader is
+  // at its end, or has just sent something; scrolled up to re-read, they are left where they are (the
+  // "Latest message" button brings them back). Only the conversation scrolls: scrollIntoView would
+  // also nudge every scrollable ancestor.
+  const atBottomRef = useRef(true);
+  const messageCountRef = useRef(0);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    const last = messages[messages.length - 1];
+    const justSent = messages.length > messageCountRef.current && last?.role === 'user';
+    messageCountRef.current = messages.length;
+    if (el && (atBottomRef.current || justSent)) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, loadingPhase, isLoading]);
 
   // Fetch UniProt/PDBe facts for the loaded structure while the user reads, so a question doesn't wait for them
@@ -475,7 +482,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     setLoadingKind('think');
     const requestId = ++requestSeqRef.current;
     activeRequestRef.current = requestId; // Phase timers below only update their own request
-    setLoadingPhase("Querying structural data..."); // Initial phase
+    setLoadingPhase('Looking up the structure…'); // Initial phase
 
     if (!hidden) {
         setMessages(prev => [...prev, { role: 'user', content: userQuery }]);
@@ -486,13 +493,13 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     (async () => {
         // Immediate check for 2nd phase to handle fast connection
         await new Promise(r => setTimeout(r, 600));
-        if (activeRequestRef.current === requestId) setLoadingPhase("Reasoning about structure...");
+        if (activeRequestRef.current === requestId) setLoadingPhase('Thinking it through…');
 
         await new Promise(r => setTimeout(r, 1500));
-        if (activeRequestRef.current === requestId) setLoadingPhase("Synthesizing analysis...");
+        if (activeRequestRef.current === requestId) setLoadingPhase('Writing the answer…');
 
         await new Promise(r => setTimeout(r, 2500));
-        if (activeRequestRef.current === requestId) setLoadingPhase("Finalizing response...");
+        if (activeRequestRef.current === requestId) setLoadingPhase('Nearly there…');
     })();
 
     try {
@@ -500,7 +507,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       const structureFacts = await getStructureFacts(currentAnalysis?.pdbId, userQuery);
       const onRateLimitWait = (seconds: number) => {
         activeRequestRef.current = 0; // The timed phases would overwrite this message
-        setLoadingPhase(`The AI is busy, retrying in ${seconds} s...`);
+        setLoadingPhase(`The AI is busy, trying again in ${seconds} s…`);
       };
       let analysis = await analyzeProteinQuery(userQuery, currentAnalysis, structureFacts, { writeCache: false, onRateLimitWait });
 
@@ -511,7 +518,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       // Exact local fixes first (UniProt numbering, misplaced ligands: no extra AI call); whatever
       // still doesn't fit goes back to the model once, with that structure's facts and the problems.
       // The trail keeps each step for the line under the answer (services/answerChecks.ts).
-      setLoadingPhase("Checking residues against the structure...");
+      setLoadingPhase('Checking the answer against the file…');
       const trail: CheckTrail = {};
       let inspection = await inspectAnswer(analysis);
       if (inspection && inspection.problems.length > 0) {
@@ -531,7 +538,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       const named = await inspectIdentity(analysis);
       const identity = named.problem;
       if ((problems && problems.length > 0) || identity) {
-        setLoadingPhase(identity ? 'Checking which protein this is...' : 'Correcting residue numbers...');
+        setLoadingPhase(identity ? 'Checking which protein this is…' : 'Fixing the residue numbers…');
         const missingEntry = (problems ?? []).some(p => /not an existing PDB entry|not a valid PDB ID/.test(p));
         const issues = [...(identity ? [identity] : []), ...(problems ?? [])];
         const repairFacts = missingEntry ? null : await getStructureFacts(analysis.pdbId, userQuery, 6000);
@@ -573,12 +580,12 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
 
       // 2. Draft Response & Pre-load Audio (skipped while narration is disabled: nothing to load)
       if (SPEECH_ENABLED && analysis.tour && analysis.tour.length > 0) {
-          setLoadingPhase("Preparing the tour...");
+          setLoadingPhase('Preparing the tour…');
           
           // Allow UI to update and user to see the message
           await new Promise(r => setTimeout(r, 600)); 
           
-          setLoadingPhase("Loading narration...");
+          setLoadingPhase('Loading the narration…');
           
           // Trigger pre-fetch in background with SAFE WRAPPER
           // This ensures pre-fetch doesn't crash the next step if it fails
@@ -1156,7 +1163,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           disabled={isLoading}
           className="flex-shrink-0 h-7 px-2.5 rounded-md border border-line bg-canvas/60 text-[12px] font-medium text-ink hover:border-line-2 hover:text-ink-strong disabled:opacity-40 transition-colors"
         >
-          Retry
+          Try again
         </button>
       )}
     </div>
@@ -1220,7 +1227,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           // The tagline shows only where it fits whole: without room it wraps onto a second line, which is clipped
           <div className="select-none flex flex-wrap items-baseline gap-x-2 min-w-0 h-[15px] overflow-hidden">
               <h1 className="flex-shrink-0 whitespace-nowrap text-[15px] font-black leading-none tracking-[-0.04em] text-ink-strong">Argus</h1>
-              <p className="whitespace-nowrap text-[10px] font-medium leading-none uppercase tracking-[0.14em] text-ink-dim">Molecular co-scientist</p>
+              <p className="whitespace-nowrap text-[10px] font-medium leading-none uppercase tracking-[0.18em] text-ink-dim">Molecular co-scientist</p>
           </div>
         )}
 
@@ -1298,7 +1305,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         ref={scrollRef}
         onScroll={e => {
           const el = e.currentTarget;
-          setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          atBottomRef.current = near;
+          setAtBottom(near);
         }}
         className="relative z-10 flex-1 overflow-y-auto"
       >

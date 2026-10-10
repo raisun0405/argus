@@ -299,7 +299,7 @@ const InvestigationCard: React.FC<InvestigationCardProps> = ({
         <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/[0.06] px-3 py-2.5">
           <p className="min-w-0 flex-1 text-chat-aside leading-relaxed text-ink">Couldn't finish the investigation: {state.error ?? 'something went wrong'}.</p>
           <button type="button" onClick={onRetry} className="flex-shrink-0 h-7 px-2.5 rounded-md border border-line bg-canvas/60 text-[12px] font-medium text-ink hover:border-line-2 hover:text-ink-strong transition-colors">
-            Retry
+            Try again
           </button>
         </div>
       )}

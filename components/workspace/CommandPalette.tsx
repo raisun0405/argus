@@ -162,7 +162,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, commands, dynamic
           )}
           {groups.map(([group, items]) => (
             <div key={group}>
-              <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-dim">{group}</p>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-dim">{group}</p>
               {items.map(({ result, index }) => (
                 <button
                   key={result.key}

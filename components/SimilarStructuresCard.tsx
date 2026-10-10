@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { SimilarIcon } from './icons';
 import type { ProteinAnalysis, SimilarSearchResult, SimilarStructureHit } from '../types';
 
 interface SimilarStructuresCardProps {
@@ -32,13 +33,12 @@ const SimilarStructuresCard: React.FC<SimilarStructuresCardProps> = ({ result, o
     <div className="mt-4 mb-1 bg-canvas rounded-xl border border-line shadow-quiz overflow-hidden">
       {/* Header */}
       <div className="bg-surface px-4 pt-3 pb-2.5 border-b border-line">
-        <div className="flex items-center justify-between gap-2">
-          {/* Same feature chip as the quiz card's "Quick Check" */}
-          <span className="bg-brand/10 text-brand-fg text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-[0.18em] border border-brand/40">
-            Similar structures
-          </span>
-          <span className="text-[10px] font-medium text-ink-dim">Foldseek</span>
-        </div>
+        {/* The same heading as the quiz card's "Quick check": the tool's icon and name, the source at the right */}
+        <p className="flex items-center gap-1.5 text-[11px] font-medium text-ink-dim">
+          <SimilarIcon size={12} />
+          Similar structures
+          <span className="ml-auto text-[10px]">Foldseek</span>
+        </p>
         <p className="mt-1 text-xs text-ink">
           Shape matches for <span className="font-semibold text-ink-strong">{result.queryLabel}</span>
         </p>

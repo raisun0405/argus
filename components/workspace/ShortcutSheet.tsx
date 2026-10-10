@@ -92,7 +92,7 @@ const ShortcutSheet: React.FC<{ open: boolean; onClose: () => void }> = ({ open,
         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
           {GROUPS.map(group => (
             <section key={group.title}>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-dim mb-1.5">{group.title}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-dim mb-1.5">{group.title}</p>
               <div className="space-y-1">
                 {group.items.map(([keys, description]) => (
                   <div key={keys + description} className="flex items-center gap-3">
