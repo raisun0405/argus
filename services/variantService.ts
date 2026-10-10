@@ -176,7 +176,8 @@ export const fetchResidueListing = (id: string) =>
 
 const sequenceCache = new Map<string, Promise<string>>();
 
-const fetchUniProtSequence = (accession: string) =>
+/** A protein's UniProt sequence ('' when UniProt has none); also gives its full length (services/coverageService.ts). */
+export const fetchUniProtSequence = (accession: string) =>
   memoize(sequenceCache, accession, async () => {
     const response = await fetchOrNull(`${UNIPROT_API}/${accession}.json?fields=sequence`);
     if (!response) return '';

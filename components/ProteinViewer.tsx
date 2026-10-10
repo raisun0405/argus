@@ -40,6 +40,8 @@ import InteractionsPanel, { INTERACTION_COLORS, InteractionsIcon } from './Inter
 import OverlayPanel, { OverlayIcon, OverlayLegend, OverlayMenu, OverlayPicker, type OverlayChoice, type OverlayColour, type OverlayState } from './OverlayPanel';
 import { CUTOFF as OVERLAY_CUTOFF, PAIR_COLORS, computeOverlay, distanceColor, overlayName, rememberOverlay } from '../services/overlayService';
 import ConfidenceMapPanel, { PAE_COLORS, PaeIcon, type PaeState } from './ConfidenceMapPanel';
+import CoveragePanel, { coverageBadge, type CoverageState } from './CoveragePanel';
+import { entryCoverage, experimentalCoverage, rememberExperimentalCoverage, type Range } from '../services/coverageService';
 import { arrangementWord, betweenMean, boxMean, fetchPae, rememberPae, type PaeBox } from '../services/paeService';
 import { loadStructureText } from '../services/investigation';
 import {
@@ -384,6 +386,42 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     if (colorScheme !== 'pae') setPaeBox(null);
   }, [colorScheme]);
   useEffect(() => setPaeBox(null), [structureId]);
+  // Coverage: the part of each protein an experimental entry holds (worked out when the section opens),
+  // or what experiments have resolved of an AlphaFold model's protein (fetched with the model, so a
+  // question about it is answered knowing that too). Predictions made here have no UniProt protein.
+  const [coverage, setCoverage] = useState<{ key: string; state: CoverageState } | null>(null);
+  const [coverageRetry, setCoverageRetry] = useState(0);
+  const coverageKey = afAccession ? `af|${afAccession}|${afView?.fromPdb ?? ''}` : !isPredicted ? `pdb|${pdbId.toUpperCase()}` : null;
+  const coverageWanted = Boolean(coverageKey) && (openSections.includes('coverage') || Boolean(afAccession));
+  const coverageStarted = useRef<string | null>(null);
+  useEffect(() => {
+    // An entry's coverage is counted from its own file: never from the one still on screen from before
+    if (!coverageKey || !coverageWanted || !model || contentIdRef.current !== structureId) return;
+    const key = `${coverageKey}|${coverageRetry}`;
+    if (coverageStarted.current === key) return;
+    coverageStarted.current = key;
+    setCoverage({ key: coverageKey, state: { status: 'loading' } });
+    const done = (state: CoverageState) => setCoverage(current => (current?.key === coverageKey ? { key: coverageKey, state } : current));
+    const failed = (e: unknown) => done({ status: 'error', error: e instanceof Error ? e.message : String(e) });
+    if (afAccession) {
+      const fromPdb = afView?.fromPdb;
+      Promise.all([
+        experimentalCoverage(afAccession),
+        fromPdb ? fetchPdbFile(fromPdb).then(text => entryCoverage(fromPdb, parseStructure(text))).then(list => list.find(c => c.accession === afAccession) ?? null) : Promise.resolve(null),
+      ]).then(([experimental, source]) => {
+        rememberExperimentalCoverage(alphaFoldId(afAccession), experimental);
+        done({ status: 'model', experimental, ...(fromPdb ? { source: { id: fromPdb, coverage: source } } : {}) });
+      }, failed);
+    } else {
+      entryCoverage(pdbId, model).then(proteins => done({ status: 'entry', proteins }), failed);
+    }
+  }, [coverageKey, coverageWanted, coverageRetry, model]);
+  const coverageState: CoverageState | null = coverage && coverage.key === coverageKey ? coverage.state : null;
+  // A stretch picked in the panel: an AlphaFold model numbers its residues like UniProt
+  const selectCoverageRange = ([from, to]: Range) => {
+    selectResidues({ chain: model?.chains[0]?.chain, from, to });
+  };
+
   // The stretches lit up on the confidence map, brought into view
   const zoomToPae = () => {
     const chain = model?.chains[0];
@@ -2531,6 +2569,17 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     )}
     </>
   );
+  const coverageSection = coverageKey ? (
+    <InspectorSection id="coverage" title="Coverage" icon={SECTION_ICONS.coverage} open={openSections.includes('coverage')} onToggle={toggleSection} badge={coverageBadge(coverageState)}>
+      <CoveragePanel
+        state={coverageState ?? { status: 'loading' }}
+        canOpenAlphaFold={accession => showAfTool && !afView && entryProteins.some(p => p.accession === accession)}
+        onOpenAlphaFold={openAlphaFold}
+        onSelect={afAccession ? selectCoverageRange : undefined}
+        onRetry={() => setCoverageRetry(n => n + 1)}
+      />
+    </InspectorSection>
+  ) : null;
   const styleSection = (
     <InspectorSection id="style" title="Style" icon={SECTION_ICONS.style} open={openSections.includes('style')} onToggle={toggleSection}>
       <StyleSection
@@ -2666,6 +2715,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           {toolSections}
           {compareSection}
           {focusSection}
+          {coverageSection}
           {styleSection}
           {layersSection}
         </>
@@ -3294,6 +3344,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           {focusSection}
           {compareSection}
           {toolSections}
+          {coverageSection}
           {styleSection}
           {layersSection}
 
@@ -3437,6 +3488,8 @@ const SECTION_ICONS = {
   style: sectionIcon(<><path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3.5-3.6 3.5h-1.9a1.8 1.8 0 0 0-1.3 3.1c.9.9.3 2.4-2.2 2.4z" /><circle cx="7.5" cy="11" r="1.2" fill="currentColor" /><circle cx="11" cy="7" r="1.2" fill="currentColor" /><circle cx="16" cy="8.5" r="1.2" fill="currentColor" /></>),
   layers: sectionIcon(<><path d="m12 3 9 4.6-9 4.6-9-4.6z" /><path d="m3 12 9 4.6 9-4.6M3 16.4 12 21l9-4.6" /></>),
   compare: sectionIcon(<><rect x="3" y="4" width="7.5" height="16" rx="2" /><rect x="13.5" y="4" width="7.5" height="16" rx="2" /></>),
+  // The whole protein as a bar, with the part present filled in
+  coverage: sectionIcon(<><rect x="2.5" y="9" width="19" height="6" rx="3" /><rect x="8" y="9" width="8" height="6" fill="currentColor" stroke="none" /></>),
 };
 
 // Thin rule between groups of tools: switching the view, overlays on it, and actions that start a search or prediction

@@ -10,6 +10,7 @@ import { cofoldFactsLine, getCofold, isCofoldId } from './cofoldService';
 import { interactionFactsLine } from './interactionService';
 import { overlayFactsLine } from './overlayService';
 import { paeFactsLine } from './paeService';
+import { complement, experimentalFactsLine, percent, rangesOf, rangesText } from './coverageService';
 import { fetchPdbFile } from './structureFiles';
 
 // --- STRUCTURE FACTS (grounding for /api/analyze) ---
@@ -366,6 +367,20 @@ const proteinLines = (accession: string, fallbackName: string, entry: UniProtEnt
     groups.length === 1
       ? [{ text: `${header}: ${groupLabel(groups[0], entry)}`, priority: 0 }]
       : [{ text: header, priority: 0 }, ...groups.map(g => ({ text: `- ${groupLabel(g, entry)}`, priority: 0 }))];
+  // How much of the protein the entry holds (resolved residues only), so an answer doesn't describe
+  // parts of it that aren't there
+  const length = entry?.sequence.length ?? 0;
+  if (length) {
+    const held = [...new Set(groups.flatMap(g => [...g.residues.keys()]))].filter(p => p >= 1 && p <= length).sort((a, b) => a - b);
+    const ranges = rangesOf(held);
+    const missing = complement(ranges, length);
+    lines.push({
+      text: missing.length
+        ? `- this entry holds UniProt ${rangesText(ranges, 6)} of ${length} (${percent(held.length, length)}%); not in it: ${rangesText(missing, 6)}`
+        : `- this entry holds the whole UniProt sequence (1-${length})`,
+      priority: 1,
+    });
+  }
   const present = new Set(groups.flatMap(g => [...g.residues.keys()])).size;
   return entry ? [...lines, ...featureLines(entry, locateIn(groups), present)] : lines;
 };
@@ -657,7 +672,7 @@ export const getStructureFacts = async (structureId: string | undefined, query =
   ]);
   const key = factsKey(structureId);
   const hint = facts && key && query ? questionHintLine(hintCache.get(key) ?? [], query)?.slice(0, 500) : null;
-  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, paeFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
+  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, paeFactsLine(structureId), experimentalFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
   return lines.length ? lines.join('\n') : null;
 };
 

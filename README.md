@@ -55,6 +55,7 @@ takes you further.
 - **Any of the 200,000+ PDB entries**, as cartoon, wireframe, spacefill or surface, coloured by element, chain, rainbow, hydrophobicity or residue type.
 - **AlphaFold models.** Switch an experimental entry to its full-length AlphaFold DB prediction, coloured by confidence (pLDDT), with highlights carried across.
 - **Confidence map.** For an AlphaFold model, the toolbar's Confidence map shows AlphaFold's predicted aligned error: how sure it is about where each part sits relative to every other part, in AlphaFold DB's own colours. Two parts can each be well predicted while their arrangement is a guess, and this is where that shows. Drag across the map, or pick a part from the panel's list, and those stretches light up in 3D, one blue and one orange. The panel lists the confidently placed parts and how sure AlphaFold is about the way they are arranged, and questions about the model get the same facts. The map matches AlphaFold DB's own picture of it (correlation 0.9995 on a 393-residue model). Also from the chat: `confidence map`.
+- **Coverage.** An experimental entry often holds only part of its protein: a domain, a fragment, a mature chain. The inspector's Coverage section shows which part, counted from the residues actually resolved in the file and matched to the protein's own numbering (SIFTS): for p53 in 1TUP, residues 94–289 of 393 (49%), with what is missing and a button to open the AlphaFold model of the whole protein. On an AlphaFold model it shows which residues any PDB entry has resolved and which are known only from the prediction (from PDBe-KB; for p53, residues 63–87 had not been resolved in any of its 321 entries as of October 2026); pick a stretch to select it. Questions get the same facts, so answers don't describe parts that aren't there.
 - **AlphaFill ligands.** AlphaFold models have no ligands, so Argus adds the cofactors, metals and other ligands AlphaFill transplants from related PDB entries. Only confident transplants that the model actually holds are shown, and each is fitted onto its own binding site.
 - **Fold any sequence.** Paste a protein sequence or FASTA (up to 400 residues), or add a FASTA file from the + menu, and ESMFold predicts its structure in seconds.
 
@@ -104,7 +105,7 @@ entry and streams while Boltz-2 runs (usually 10–60 s).
 |---|---|---|
 | NVIDIA Nemotron 3 Super on [Nebius Token Factory](https://tokenfactory.nebius.com) | Answers and Investigate mode | NVIDIA open model, via Token Factory's API |
 | [RCSB PDB](https://www.rcsb.org) | Structure files, complex search, entry titles | CC0 |
-| [PDBe](https://www.ebi.ac.uk/pdbe/) | SIFTS residue mapping, residue listings, ligands | EMBL-EBI terms of use |
+| [PDBe](https://www.ebi.ac.uk/pdbe/) | SIFTS residue mapping, residue listings, ligands; PDBe-KB's resolved residues per protein (Coverage) | EMBL-EBI terms of use |
 | [UniProt](https://www.uniprot.org) | Curated features, sequences, disease variants | CC BY 4.0 |
 | [AlphaFold DB](https://alphafold.ebi.ac.uk) | Predicted models, their confidence maps and AlphaMissense scores | CC BY 4.0 |
 | [AlphaFill](https://alphafill.eu) | Ligands for AlphaFold models | Hekkelman et al., *Nat Methods* 2023 |
@@ -209,6 +210,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 │   ├── InteractionsPanel.tsx       # Ligand interactions panel
 │   ├── OverlayPanel.tsx            # Overlay: the picker, the panel and its legend
 │   ├── ConfidenceMapPanel.tsx      # An AlphaFold model's confidence map (predicted aligned error)
+│   ├── CoveragePanel.tsx           # Coverage: the part of each protein an entry holds, what experiments resolve
 │   ├── SimilarStructuresCard.tsx   # Foldseek results in the chat
 │   ├── PartnersCard.tsx            # STRING partners in the chat
 │   ├── CofoldMenu.tsx, CofoldCard.tsx  # Co-fold form (toolbar) and result (chat)
@@ -221,6 +223,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
     ├── variantService.ts           # SIFTS mapping, AlphaMissense, UniProt variants
     ├── alphafoldService.ts         # AlphaFold DB models
     ├── paeService.ts               # Confidence maps: reading the file, AlphaFold DB's colours, the confident parts
+    ├── coverageService.ts          # Coverage from the resolved residues (SIFTS, PDBe-KB)
     ├── alphafillService.ts         # AlphaFill transplants fitted onto the model on screen
     ├── esmfoldService.ts           # Sequence detection and ESMFold
     ├── foldseekService.ts          # Foldseek search and result grouping
@@ -259,7 +262,7 @@ the browser tab that made them. Never commit `.env.local`; it is git-ignored.
 
 | | |
 |---|---|
-| **Done** | Grounded and checked answers · Investigate mode · Variant Lens · AlphaFold models and AlphaFill ligands · Confidence maps · ESMFold · Foldseek · Pocket Radar · Interactions · Overlay · Partners · Boltz-2 co-folding into a chosen site · Comparing two molecules · The workspace: sequence, selection, inspector, command palette · Share links · Colour themes |
+| **Done** | Grounded and checked answers · Investigate mode · Variant Lens · AlphaFold models and AlphaFill ligands · Confidence maps · Coverage · ESMFold · Foldseek · Pocket Radar · Interactions · Overlay · Partners · Boltz-2 co-folding into a chosen site · Comparing two molecules · The workspace: sequence, selection, inspector, command palette · Share links · Colour themes |
 | **Next** | Ranking a small set of molecules against one site |
 | **Later** | Mutation stability estimates · classroom features such as saved tours and quiz sets |
 
