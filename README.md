@@ -56,6 +56,7 @@ takes you further.
 - **AlphaFold models.** Switch an experimental entry to its full-length AlphaFold DB prediction, coloured by confidence (pLDDT), with highlights carried across.
 - **Confidence map.** For an AlphaFold model, the toolbar's Confidence map shows AlphaFold's predicted aligned error: how sure it is about where each part sits relative to every other part, in AlphaFold DB's own colours. Two parts can each be well predicted while their arrangement is a guess, and this is where that shows. Drag across the map, or pick a part from the panel's list, and those stretches light up in 3D, one blue and one orange. The panel lists the confidently placed parts and how sure AlphaFold is about the way they are arranged, and questions about the model get the same facts. The map matches AlphaFold DB's own picture of it (correlation 0.9995 on a 393-residue model). Also from the chat: `confidence map`.
 - **Coverage.** An experimental entry often holds only part of its protein: a domain, a fragment, a mature chain. The inspector's Coverage section shows which part, counted from the residues actually resolved in the file and matched to the protein's own numbering (SIFTS): for p53 in 1TUP, residues 94–289 of 393 (49%), with what is missing and a button to open the AlphaFold model of the whole protein. On an AlphaFold model it shows which residues any PDB entry has resolved and which are known only from the prediction (from PDBe-KB; for p53, residues 63–87 had not been resolved in any of its 321 entries as of October 2026); pick a stretch to select it. Questions get the same facts, so answers don't describe parts that aren't there.
+- **Quality.** How far to trust an experimental structure, from its official wwPDB validation report: the method, resolution and R-free, then the clashscore, Ramachandran and side-chain outliers and (for X-ray) the fit to the density, each with its percentile ranks against the archive (0 to 100, higher is better) as the report gives them: among all X-ray structures and those of similar resolution, or among all structures and those of the same method. Read from the report itself rather than from PDBe's copy, which serves an older validation run. Questions get the same numbers; the full report is a click away on RCSB.
 - **AlphaFill ligands.** AlphaFold models have no ligands, so Argus adds the cofactors, metals and other ligands AlphaFill transplants from related PDB entries. Only confident transplants that the model actually holds are shown, and each is fitted onto its own binding site.
 - **Fold any sequence.** Paste a protein sequence or FASTA (up to 400 residues), or add a FASTA file from the + menu, and ESMFold predicts its structure in seconds.
 
@@ -105,6 +106,7 @@ entry and streams while Boltz-2 runs (usually 10–60 s).
 |---|---|---|
 | NVIDIA Nemotron 3 Super on [Nebius Token Factory](https://tokenfactory.nebius.com) | Answers and Investigate mode | NVIDIA open model, via Token Factory's API |
 | [RCSB PDB](https://www.rcsb.org) | Structure files, complex search, entry titles | CC0 |
+| [wwPDB](https://www.wwpdb.org) | Validation reports (Quality) | CC0 |
 | [PDBe](https://www.ebi.ac.uk/pdbe/) | SIFTS residue mapping, residue listings, ligands; PDBe-KB's resolved residues per protein (Coverage) | EMBL-EBI terms of use |
 | [UniProt](https://www.uniprot.org) | Curated features, sequences, disease variants | CC BY 4.0 |
 | [AlphaFold DB](https://alphafold.ebi.ac.uk) | Predicted models, their confidence maps and AlphaMissense scores | CC BY 4.0 |
@@ -130,7 +132,7 @@ results or clinical advice. Predicted affinities in particular are for comparing
 - **3Dmol.js** for the 3D viewer
 - **three.js** for the landing page's 3D stage
 - **thinking-orbs**, **border-beam** and **metal-fx** (MIT) for the chat's loaders, composer beam and liquid-metal finish
-- **Vercel** hosting, three Edge Functions and Web Analytics
+- **Vercel** hosting, five Edge Functions and Web Analytics
 
 ## Run locally
 
@@ -183,7 +185,9 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 ├── api/
 │   ├── analyze.ts                  # Edge Function: Nemotron (Token Factory) call, prompt, validation, limits
 │   ├── investigate.ts              # Edge Function: Investigate mode's plan and write-up
-│   └── cofold.ts                   # Edge Function: Boltz-2 input from RCSB, NVIDIA call, streaming, limits
+│   ├── cofold.ts                   # Edge Function: Boltz-2 input from RCSB, NVIDIA call, streaming, limits
+│   ├── report.ts                   # Edge Function: error reports from browsers, logged and emailed
+│   └── quality.ts                  # Edge Function: an entry's wwPDB validation summary
 ├── components/
 │   ├── ReasoningEngine.tsx         # Chat, grounding and answer checks, tours, voice
 │   ├── chat/
@@ -211,6 +215,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 │   ├── OverlayPanel.tsx            # Overlay: the picker, the panel and its legend
 │   ├── ConfidenceMapPanel.tsx      # An AlphaFold model's confidence map (predicted aligned error)
 │   ├── CoveragePanel.tsx           # Coverage: the part of each protein an entry holds, what experiments resolve
+│   ├── QualityPanel.tsx            # Quality: an entry's validation scores and percentiles
 │   ├── SimilarStructuresCard.tsx   # Foldseek results in the chat
 │   ├── PartnersCard.tsx            # STRING partners in the chat
 │   ├── CofoldMenu.tsx, CofoldCard.tsx  # Co-fold form (toolbar) and result (chat)
@@ -224,6 +229,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
     ├── alphafoldService.ts         # AlphaFold DB models
     ├── paeService.ts               # Confidence maps: reading the file, AlphaFold DB's colours, the confident parts
     ├── coverageService.ts          # Coverage from the resolved residues (SIFTS, PDBe-KB)
+    ├── qualityService.ts           # Quality: the validation summary, its labels, the facts line
     ├── alphafillService.ts         # AlphaFill transplants fitted onto the model on screen
     ├── esmfoldService.ts           # Sequence detection and ESMFold
     ├── foldseekService.ts          # Foldseek search and result grouping
@@ -252,6 +258,7 @@ The Edge Functions are the only places the keys live. They enforce:
 - **Timeouts and clean errors:** an 18-second limit on the LLM call and 4 minutes on a prediction; upstream error details are logged, never returned.
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.
 - **Error reports:** when the app's own code fails in a browser, a short report goes to `api/report.ts`: the error's message, where in the code, the page's path (not a share link's content) and the build, and nothing else from the page. It is logged and, when set up, emailed to you: each kind of error once, then at most every 6 hours. Ten reports a minute per visitor, at most 10 emails an hour per server instance.
+- **Quality:** `api/quality.ts` reads only the start of an entry's official validation report on files.wwpdb.org (browsers can't fetch it there) and returns its summary: PDB IDs only, the same origin check, 30 requests a minute per visitor.
 
 Argus has no accounts and stores nothing on a server. Answers are cached in your browser's
 `localStorage` to save repeat calls, and share links keep their content in the URL fragment.
@@ -262,7 +269,7 @@ the browser tab that made them. Never commit `.env.local`; it is git-ignored.
 
 | | |
 |---|---|
-| **Done** | Grounded and checked answers · Investigate mode · Variant Lens · AlphaFold models and AlphaFill ligands · Confidence maps · Coverage · ESMFold · Foldseek · Pocket Radar · Interactions · Overlay · Partners · Boltz-2 co-folding into a chosen site · Comparing two molecules · The workspace: sequence, selection, inspector, command palette · Share links · Colour themes |
+| **Done** | Grounded and checked answers · Investigate mode · Variant Lens · AlphaFold models and AlphaFill ligands · Confidence maps · Coverage · Quality · ESMFold · Foldseek · Pocket Radar · Interactions · Overlay · Partners · Boltz-2 co-folding into a chosen site · Comparing two molecules · The workspace: sequence, selection, inspector, command palette · Share links · Colour themes |
 | **Next** | Ranking a small set of molecules against one site |
 | **Later** | Mutation stability estimates · classroom features such as saved tours and quiz sets |
 

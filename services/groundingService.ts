@@ -11,6 +11,7 @@ import { interactionFactsLine } from './interactionService';
 import { overlayFactsLine } from './overlayService';
 import { paeFactsLine } from './paeService';
 import { complement, experimentalFactsLine, percent, rangesOf, rangesText } from './coverageService';
+import { qualityFactsLine } from './qualityService';
 import { fetchPdbFile } from './structureFiles';
 
 // --- STRUCTURE FACTS (grounding for /api/analyze) ---
@@ -672,7 +673,7 @@ export const getStructureFacts = async (structureId: string | undefined, query =
   ]);
   const key = factsKey(structureId);
   const hint = facts && key && query ? questionHintLine(hintCache.get(key) ?? [], query)?.slice(0, 500) : null;
-  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, paeFactsLine(structureId), experimentalFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
+  const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, qualityFactsLine(structureId), paeFactsLine(structureId), experimentalFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
   return lines.length ? lines.join('\n') : null;
 };
 

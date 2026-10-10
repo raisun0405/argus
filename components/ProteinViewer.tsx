@@ -42,6 +42,8 @@ import { CUTOFF as OVERLAY_CUTOFF, PAIR_COLORS, computeOverlay, distanceColor, o
 import ConfidenceMapPanel, { PAE_COLORS, PaeIcon, type PaeState } from './ConfidenceMapPanel';
 import CoveragePanel, { coverageBadge, type CoverageState } from './CoveragePanel';
 import { entryCoverage, experimentalCoverage, rememberExperimentalCoverage, type Range } from '../services/coverageService';
+import QualityPanel, { qualityBadge, type QualityState } from './QualityPanel';
+import { fetchQuality, rememberQuality } from '../services/qualityService';
 import { arrangementWord, betweenMean, boxMean, fetchPae, rememberPae, type PaeBox } from '../services/paeService';
 import { loadStructureText } from '../services/investigation';
 import {
@@ -417,6 +419,28 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     }
   }, [coverageKey, coverageWanted, coverageRetry, model]);
   const coverageState: CoverageState | null = coverage && coverage.key === coverageKey ? coverage.state : null;
+  // Quality: an experimental entry's official validation summary (api/quality.ts), fetched with the
+  // entry so a question about it is answered knowing it too. Predicted models have confidence instead.
+  const [quality, setQuality] = useState<{ id: string; state: QualityState } | null>(null);
+  const [qualityRetry, setQualityRetry] = useState(0);
+  const qualityId = !isPredicted && /^[1-9][A-Za-z0-9]{3}$/.test(pdbId.trim()) ? pdbId.trim().toUpperCase() : null;
+  const qualityStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!qualityId) return;
+    const key = `${qualityId}|${qualityRetry}`;
+    if (qualityStarted.current === key) return;
+    qualityStarted.current = key;
+    setQuality({ id: qualityId, state: { status: 'loading' } });
+    fetchQuality(qualityId).then(
+      report => {
+        rememberQuality(qualityId, report);
+        setQuality(current => (current?.id === qualityId ? { id: qualityId, state: { status: 'ready', report } } : current));
+      },
+      e => setQuality(current => (current?.id === qualityId ? { id: qualityId, state: { status: 'error', error: e instanceof Error ? e.message : String(e) } } : current)),
+    );
+  }, [qualityId, qualityRetry]);
+  const qualityState: QualityState | null = quality && quality.id === qualityId ? quality.state : null;
+
   // A stretch picked in the panel: an AlphaFold model numbers its residues like UniProt
   const selectCoverageRange = ([from, to]: Range) => {
     selectResidues({ chain: model?.chains[0]?.chain, from, to });
@@ -2580,6 +2604,11 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       />
     </InspectorSection>
   ) : null;
+  const qualitySection = qualityId ? (
+    <InspectorSection id="quality" title="Quality" icon={SECTION_ICONS.quality} open={openSections.includes('quality')} onToggle={toggleSection} badge={qualityBadge(qualityState)}>
+      <QualityPanel state={qualityState ?? { status: 'loading' }} onRetry={() => setQualityRetry(n => n + 1)} />
+    </InspectorSection>
+  ) : null;
   const styleSection = (
     <InspectorSection id="style" title="Style" icon={SECTION_ICONS.style} open={openSections.includes('style')} onToggle={toggleSection}>
       <StyleSection
@@ -2716,6 +2745,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           {compareSection}
           {focusSection}
           {coverageSection}
+          {qualitySection}
           {styleSection}
           {layersSection}
         </>
@@ -3345,6 +3375,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           {compareSection}
           {toolSections}
           {coverageSection}
+          {qualitySection}
           {styleSection}
           {layersSection}
 
@@ -3490,6 +3521,8 @@ const SECTION_ICONS = {
   compare: sectionIcon(<><rect x="3" y="4" width="7.5" height="16" rx="2" /><rect x="13.5" y="4" width="7.5" height="16" rx="2" /></>),
   // The whole protein as a bar, with the part present filled in
   coverage: sectionIcon(<><rect x="2.5" y="9" width="19" height="6" rx="3" /><rect x="8" y="9" width="8" height="6" fill="currentColor" stroke="none" /></>),
+  // A gauge: how far to trust the model
+  quality: sectionIcon(<><path d="M4 16a8 8 0 0 1 16 0" /><path d="m12 16 4-5" /><circle cx="12" cy="16" r="1.4" fill="currentColor" /></>),
 };
 
 // Thin rule between groups of tools: switching the view, overlays on it, and actions that start a search or prediction

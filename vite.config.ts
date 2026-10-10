@@ -72,7 +72,7 @@ function siteUrl(): Plugin {
 // streamed responses included (/api/cofold streams while Boltz-2 runs).
 //
 // `apply: 'serve'` keeps it out of `vite build`; Vercel is unaffected.
-const API_ROUTES = ['analyze', 'cofold', 'investigate', 'report'];
+const API_ROUTES = ['analyze', 'cofold', 'investigate', 'report', 'quality'];
 const SERVER_KEYS = ['NEBIUS_API_KEY', 'NEMOTRON_MODEL', 'NVIDIA_NIM_KEY', 'COFOLD_DAILY_LIMIT', 'TAVILY_API_KEY', 'RESEND_API_KEY', 'REPORTS_EMAIL'];
 
 function vercelApiDev(env: Record<string, string>): Plugin {
