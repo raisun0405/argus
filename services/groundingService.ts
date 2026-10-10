@@ -460,6 +460,15 @@ interface FactLines {
   incomplete: boolean; // A source failed: use the text now, but don't cache it
 }
 
+/** Whether RCSB has the entry: false only on its plain "not found", null when it couldn't be asked. */
+const rcsbHasEntry = async (id: string): Promise<boolean | null> => {
+  try {
+    return (await fetchOrNull(`https://data.rcsb.org/rest/v1/core/entry/${id}`)) !== null;
+  } catch {
+    return null;
+  }
+};
+
 const pdbFactLines = async (id: string): Promise<FactLines> => {
   let incomplete = false;
   let moleculesFailed = false;
@@ -476,7 +485,16 @@ const pdbFactLines = async (id: string): Promise<FactLines> => {
       return failed([] as Molecule[])();
     }),
   ]);
-  if (listing.size === 0 && molecules.length === 0) return { lines: [], hints: [], index: 'unknown', incomplete }; // No such entry
+  if (listing.size === 0 && molecules.length === 0) {
+    // PDBe knows nothing of it. Only RCSB, where the files come from, can say the entry doesn't exist:
+    // when a source failed, or RCSB has an entry PDBe hasn't taken in yet, the answer just can't be
+    // checked, and the next question asks again
+    const exists = incomplete ? null : await rcsbHasEntry(id);
+    return { lines: [], hints: [], index: exists === false ? 'unknown' : null, incomplete: exists !== false };
+  }
+  // Chains listed but no residues: what's missing is the residue list, not the residues, so nothing
+  // here can be judged (every mark would read "not in this file")
+  if (listing.size === 0 && molecules.some(m => /^poly/.test(m.type))) return { lines: [], hints: [], index: null, incomplete: true };
 
   // Observed residues of each protein, keyed by UniProt position, per author chain
   const positions = await Promise.all(
@@ -629,6 +647,7 @@ const questionHintLine = (proteins: HintProtein[], query: string): string | null
 const factsCache = new Map<string, Promise<string | null>>();
 const hintCache = new Map<string, HintProtein[]>(); // Filled alongside factsCache
 const indexCache = new Map<string, StructureIndex | 'unknown'>(); // Likewise
+const degraded = new Set<string>(); // Keys whose last build had a source failing
 
 /** Cache key for a structure with facts: "AF-P04637" or a lower-case PDB ID; null for anything else (e.g. ESMFold). */
 const factsKey = (structureId: string) => {
@@ -645,8 +664,14 @@ export const loadStructureFacts = (structureId: string): Promise<string | null> 
   const accession = parseAlphaFoldId(structureId.trim());
   let incomplete = false;
   const pending = memoize(factsCache, key, async () => {
+    // A rebuild (the last build had a source failing): while it runs nothing reads that copy, so a
+    // check that can't wait for the new one says "not checked" rather than judge by incomplete data
+    hintCache.delete(key);
+    indexCache.delete(key);
     const result = accession ? await alphaFoldFactLines(accession) : await pdbFactLines(key);
     incomplete = result.incomplete;
+    if (incomplete) degraded.add(key);
+    else degraded.delete(key);
     hintCache.set(key, result.hints);
     if (result.index) indexCache.set(key, result.index);
     else indexCache.delete(key);
@@ -818,10 +843,13 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         continue;
       }
       if (!residue) {
-        if (!ligand) {
+        if (ligand) mark(at, 'ligand');
+        // Without the ligand list, a place that isn't a residue may still be a ligand: not a fault
+        else if (!index.ligands) mark(at, 'unchecked');
+        else {
           problems.add(`${h.chain}:${resi}${label} is not in this file (${whereIs(h.chain)})`);
           mark(at, 'missing');
-        } else mark(at, 'ligand');
+        }
         continue;
       }
       const expected = named.get(resi);
@@ -841,6 +869,7 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
       const at = `${end.chain}|${end.resi}`;
       if (index.residues.has(at)) mark(at, 'residue');
       else if (index.ligands?.has(at)) mark(at, 'ligand');
+      else if (!index.ligands) mark(at, 'unchecked'); // May be a ligand: the list didn't load
       else {
         problems.add(`measurement end ${end.chain}:${end.resi} is not in this file (${whereIs(end.chain)})`);
         mark(at, 'missing');
@@ -859,9 +888,13 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     atNumber.set(resi, (atNumber.get(resi) ?? new Map<string, string>()).set(chain, PARENT[type] ?? type));
   }
   const sequences = (hintCache.get(key) ?? []).map(p => p.sequence);
-  // The answer's own words only: notes this app appends to the summary are not the AI's claims
-  const text = [analysis.summary, ...(analysis.tour ?? []).map(s => s.text), analysis.quiz?.question, analysis.quiz?.explanation]
-    .filter(Boolean).join(' ').split(NUMBERING_NOTE)[0];
+  // The answer's own words only: the note this app appends to the summary is not the AI's claim (cut
+  // from the summary alone, so the tour and quiz after it are still read)
+  const text = [analysis.summary?.split(NUMBERING_NOTE)[0], ...(analysis.tour ?? []).map(s => s.text), analysis.quiz?.question, analysis.quiz?.explanation]
+    .filter(Boolean).join(' ');
+  // Built while a source was failing, a protein's own sequence may be missing: a name can then be
+  // confirmed, but not called wrong
+  const unsure = degraded.has(key);
   let named = 0;
   let misnamed = 0;
   for (const [resi, types] of labelledTypes(text)) {
@@ -872,7 +905,7 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     const inFile = new Set((chains.length ? chains : [...here.keys()]).map(c => here.get(c) as string));
     const allowed = new Set([...inFile, ...sequences.map(s => THREE[s[resi - 1]]?.toUpperCase()).filter(Boolean) as string[]]);
     if ([...types].some(t => allowed.has(t))) named++;
-    else {
+    else if (!unsure) {
       misnamed++;
       problems.add(`the answer's text says ${[...types].map(titleCase).join('/')}${resi}, but residue ${resi} is ${[...inFile].map(titleCase).join('/')} in this file`);
     }
@@ -1164,7 +1197,8 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
 
   const fixAtom = <T extends { chain: string; resi: number }>(end: T): T => {
     const at = `${end.chain}|${end.resi}`;
-    if (index.residues.has(at) || index.ligands?.has(at) || !usesUniProtNumbering) return end;
+    // Without the ligand list, an end that isn't a residue may be a ligand, so it stays where it is
+    if (index.residues.has(at) || index.ligands?.has(at) || !index.ligands || !usesUniProtNumbering) return end;
     for (const protein of proteins) {
       const located = protein.locate(end.resi);
       if (located && index.residues.has(`${end.chain}|${located.resi}`)) {

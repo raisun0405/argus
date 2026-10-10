@@ -18,6 +18,7 @@ import EmptyState from './chat/EmptyState';
 import MarkedParts from './chat/MarkedParts';
 import ActionReceipt from './chat/ActionReceipt';
 import AnswerChecks from './chat/AnswerChecks';
+import ErrorBoundary, { MessageCrash } from './ErrorBoundary';
 import TweakPanel from './chat/TweakPanel';
 import { actionDone, actionFailed, actionFromId, actionPlanned, parseChatCommand, type ActionResult, type ChatAction } from '../services/chatActions';
 import { THEME_LIST, type ThemeId } from '../themes';
@@ -561,11 +562,18 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           const repaired = await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait });
           const remaining = await checkAnswer(repaired);
           const remainingIdentity = await checkIdentity(repaired);
-          // Keep the correction unless it is no better than the first answer
-          const after = (remaining?.length ?? 0) + (remainingIdentity ? 1 : 0);
-          const kept = (remaining === null && !remainingIdentity) || after < issues.length;
-          if (kept) analysis = repaired;
-          trail.retry = { ...first, outcome: kept ? 'kept' : 'first' };
+          let outcome: 'kept' | 'first' | 'unverified';
+          if (remaining === null) {
+            // The second answer couldn't be checked (its entry's records didn't load in time). It
+            // replaces the first only when the first named a protein or an entry that was plainly
+            // wrong; otherwise the first stands, its faults known and shown
+            outcome = remainingIdentity ? 'first' : identity || missingEntry ? 'kept' : 'unverified';
+          } else {
+            // Keep the correction unless it is no better than the first answer
+            outcome = remaining.length + (remainingIdentity ? 1 : 0) < issues.length ? 'kept' : 'first';
+          }
+          if (outcome === 'kept') analysis = repaired;
+          trail.retry = { ...first, outcome };
         } catch (e) {
           // The first answer stands
           trail.retry = { ...first, outcome: 'failed' };
@@ -1324,7 +1332,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         ) : (
           <div className={`relative px-4 py-5 ${look.density === 'compact' ? 'space-y-4' : 'space-y-6'}`}>
             {look.messages === 'timeline' && <div aria-hidden="true" className="absolute left-[29.5px] top-8 bottom-8 w-px bg-line" />}
-            {messages.map(renderMessage)}
+            {/* A message that can't be drawn is replaced by a note; the rest of the conversation stays */}
+            {messages.map((msg, idx) => (
+              <ErrorBoundary key={idx} fallback={() => <MessageCrash />}>{renderMessage(msg, idx)}</ErrorBoundary>
+            ))}
 
             {/* An investigation shows its own progress in its card */}
             {(isLoading || demo.loader) && investigatingId === null && (

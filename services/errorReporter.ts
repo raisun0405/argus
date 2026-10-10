@@ -48,6 +48,11 @@ const report = (kind: 'error' | 'rejection', message: string, source: string | u
   }
 };
 
+/** A fault an error boundary caught while drawing: React handles it, so the window never hears of it. */
+export const reportCaught = (error: unknown) => {
+  if (error instanceof Error) report('error', error.message || error.name, undefined, error.stack);
+};
+
 /** Starts reporting the page's uncaught errors and unhandled promise rejections (once per page). */
 export const startErrorReports = () => {
   if ((window as any).__errorReports) return;

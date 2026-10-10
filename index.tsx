@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { Analytics } from '@vercel/analytics/react';
 import App from './App';
+import ErrorBoundary, { AppCrash } from './components/ErrorBoundary';
 import './index.css';
 import { buildThemeCss } from './themes';
 import { initTheme } from './useTheme';
@@ -28,7 +29,10 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    {/* A fault the panes' own boundaries don't catch shows a way back instead of an empty page */}
+    <ErrorBoundary fallback={() => <AppCrash />}>
+      <App />
+    </ErrorBoundary>
     <Analytics />
   </React.StrictMode>
 );

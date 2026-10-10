@@ -13,6 +13,7 @@ import { isTyping, matchesChord, parseResidueQuery, type Command } from './servi
 import { THEME_LIST } from './themes';
 import { useTheme } from './useTheme';
 import { PHONE_QUERY, useMediaQuery } from './useMedia';
+import ErrorBoundary, { PaneCrash } from './components/ErrorBoundary';
 
 // Mock data for initial state (Insulin)
 const INITIAL_DATA: ProteinAnalysis = {
@@ -318,51 +319,54 @@ const App: React.FC = () => {
         )}
 
         <div className={`flex-1 min-w-0 h-full relative ${workspaceHidden ? 'hidden' : ''}`}>
-          <ProteinViewer
-            pdbId={currentAnalysis.pdbId}
-            title={currentAnalysis.title}
-            highlights={currentAnalysis.highlights}
-            measurements={currentAnalysis.measurements}
-            tourHighlights={tourHighlights}
-            // These run as chat turns, so a phone goes to the chat to show them working
-            onFindSimilar={(query) => {
-              setSimilarityRequest({ id: Date.now(), query });
-              if (narrow) setPhoneTab('chat');
-            }}
-            onFindPartners={(query) => {
-              setPartnersRequest({ id: Date.now(), query });
-              if (narrow) setPhoneTab('chat');
-            }}
-            onCofold={(request, compareWith) => {
-              setCofoldRequest({ id: Date.now(), request, ...(compareWith ? { compareWith } : {}) });
-              if (narrow) setPhoneTab('chat');
-            }}
-            isChatBusy={isChatBusy}
-            initialView={sharedView?.view}
-            viewStateRef={viewStateRef}
-            commandsRef={commandsRef}
-            onOpenPalette={() => setPaletteOpen(true)}
-            onAsk={(question) => {
-              setAskRequest({ id: Date.now(), question });
-              if (narrow) setPhoneTab('chat');
-            }}
-            onShowChat={!chatOpen && !narrow ? () => setChatOpen(true) : undefined}
-            phone={narrow}
-            headerStart={paneSwitch}
-            subtitle={subtitle}
-            tourControls={narrow && tour.active ? {
-              paused: tour.paused,
-              onPause: () => tourControlsRef.current?.pause(),
-              onStop: () => tourControlsRef.current?.stop(),
-            } : undefined}
-            actionRequest={actionRequest}
-            onActionsDone={(id, results) => {
-              settleActions(id, results);
-              // On a phone, show what changed (searches report back in the chat, so they stay there)
-              const visible = results.some(r => r.ok && !(r.action.kind === 'tool' && (r.action.tool === 'similar' || r.action.tool === 'partners')));
-              if (narrow && visible) setPhoneTab('structure');
-            }}
-          />
+          {/* A fault in the 3D workspace replaces only it: the chat carries on, and opening another structure tries again */}
+          <ErrorBoundary resetKey={currentAnalysis.pdbId} fallback={retry => <PaneCrash onRetry={retry} headerStart={paneSwitch} />}>
+            <ProteinViewer
+              pdbId={currentAnalysis.pdbId}
+              title={currentAnalysis.title}
+              highlights={currentAnalysis.highlights}
+              measurements={currentAnalysis.measurements}
+              tourHighlights={tourHighlights}
+              // These run as chat turns, so a phone goes to the chat to show them working
+              onFindSimilar={(query) => {
+                setSimilarityRequest({ id: Date.now(), query });
+                if (narrow) setPhoneTab('chat');
+              }}
+              onFindPartners={(query) => {
+                setPartnersRequest({ id: Date.now(), query });
+                if (narrow) setPhoneTab('chat');
+              }}
+              onCofold={(request, compareWith) => {
+                setCofoldRequest({ id: Date.now(), request, ...(compareWith ? { compareWith } : {}) });
+                if (narrow) setPhoneTab('chat');
+              }}
+              isChatBusy={isChatBusy}
+              initialView={sharedView?.view}
+              viewStateRef={viewStateRef}
+              commandsRef={commandsRef}
+              onOpenPalette={() => setPaletteOpen(true)}
+              onAsk={(question) => {
+                setAskRequest({ id: Date.now(), question });
+                if (narrow) setPhoneTab('chat');
+              }}
+              onShowChat={!chatOpen && !narrow ? () => setChatOpen(true) : undefined}
+              phone={narrow}
+              headerStart={paneSwitch}
+              subtitle={subtitle}
+              tourControls={narrow && tour.active ? {
+                paused: tour.paused,
+                onPause: () => tourControlsRef.current?.pause(),
+                onStop: () => tourControlsRef.current?.stop(),
+              } : undefined}
+              actionRequest={actionRequest}
+              onActionsDone={(id, results) => {
+                settleActions(id, results);
+                // On a phone, show what changed (searches report back in the chat, so they stay there)
+                const visible = results.some(r => r.ok && !(r.action.kind === 'tool' && (r.action.tool === 'similar' || r.action.tool === 'partners')));
+                if (narrow && visible) setPhoneTab('structure');
+              }}
+            />
+          </ErrorBoundary>
         </div>
       </div>
 

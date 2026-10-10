@@ -18,7 +18,7 @@ export interface CheckTrail {
     missing: boolean; // ...that entry doesn't exist
     holds: string; // ...what that entry really is, when the answer named another protein ('' otherwise)
     problems: number; // ...and how many places (marked, or named in its text) don't match that entry
-    outcome: 'kept' | 'first' | 'failed'; // The second answer was kept, was no better, or never came
+    outcome: 'kept' | 'first' | 'unverified' | 'failed'; // The second answer was kept, was no better, couldn't be checked, or never came
   };
   corrected?: boolean; // Still another protein after that: the heading became the entry's own title
 }
@@ -75,7 +75,7 @@ export function buildChecks(structure: string, inspection: AnswerInspection | nu
     if (residues) rows.push({ state: 'ok', text: `${count(residues, 'marked residue')} ${residues === 1 ? 'is' : 'are'} in ${where}` });
     if (ligands) rows.push({ state: 'ok', text: `${count(ligands, 'marked ligand')} ${ligands === 1 ? 'is' : 'are'} in ${where}` });
     if (named) rows.push({ state: 'ok', text: `${count(named, 'amino acid')} named in the answer ${named === 1 ? 'is' : 'are'} that amino acid in ${where}` });
-    if (unchecked) rows.push({ state: 'skipped', text: `${count(unchecked, 'marked ligand')} not checked: ${structure}'s ligand list didn't load` });
+    if (unchecked) rows.push({ state: 'skipped', text: `${count(unchecked, 'marked part')} not checked: ${structure}'s ligand list didn't load` });
     problems.forEach(p => rows.push({ state: 'issue', text: capitalised(p) }));
     const unlisted = missing + wrong + misnamed - problems.length;
     if (unlisted > 0) rows.push({ state: 'issue', text: `...and ${unlisted} more like ${unlisted === 1 ? 'that' : 'these'}` });
@@ -95,9 +95,11 @@ export function buildChecks(structure: string, inspection: AnswerInspection | nu
       r.holds ? `called ${r.entry} "${r.title}", but ${r.entry} is ${shortened(r.holds)}` : '',
       r.problems ? `didn't match ${r.entry} in ${count(r.problems, 'place')}` : '',
     ].filter(Boolean).join(' and ') || `didn't fit ${r.entry}`;
+    const instead = r.outcome === 'first' ? 'the second answer was no better' : r.outcome === 'unverified' ? "the second answer couldn't be checked" : 'that request failed';
     rows.push(r.outcome === 'kept'
-      ? { state: 'fixed', text: `The first answer ${why}, so it went back to the AI once${structure === r.entry ? ` with ${r.entry}'s records` : `, which chose ${structure} instead`}` }
-      : { state: 'skipped', text: `The first answer ${why}. It went back to the AI once, but ${r.outcome === 'first' ? 'the second answer was no better' : 'that request failed'}, so this is the first answer` });
+      // A fix only counts as one when the answer that replaced the first could itself be checked
+      ? { state: inspection ? 'fixed' : 'skipped', text: `The first answer ${why}, so it went back to the AI once${structure === r.entry ? ` with ${r.entry}'s records` : `, which chose ${structure} instead`}` }
+      : { state: 'skipped', text: `The first answer ${why}. It went back to the AI once, but ${instead}, so this is the first answer` });
   }
 
   const status = rows.some(r => r.state === 'issue') ? 'issues' : rows.some(r => r.state === 'fixed') ? 'fixed' : 'passed';
