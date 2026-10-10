@@ -5,8 +5,16 @@
 // (services/alertEmail.ts); the same error again at most every 6 hours per server instance, saying how
 // many times it was seen since, under the same subject, so a mail client keeps them in one thread. A
 // report holds the error, where in the code, the page's path and the build, and nothing else from the page.
+//
+// Anything can post here, a script included (the origin check only stops other websites' pages), so
+// the alerts have one limit for the whole site: ALERTS_PER_HOUR emails an hour, however many server
+// instances share the work. The instances share no store, so Resend keeps the count: each hour has
+// numbered slots, an email goes out under its slot's idempotency key, and Resend never sends twice under
+// one key (another email under a used key is refused with 409), so each slot is used once at most, by
+// whichever instance asks first. The key names the site by its production domain, not by the address a
+// report came in on, so asking another of the deployment's addresses doesn't buy another count.
 
-import { alertEmail, REPEAT_HOURS, type AlertReport } from '../services/alertEmail';
+import { alertEmail, ALERTS_PER_HOUR, REPEAT_HOURS, type AlertEmail, type AlertReport } from '../services/alertEmail';
 
 export const config = { runtime: 'edge' };
 
@@ -20,14 +28,19 @@ const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_REPORTS = 10; // Per visitor per minute; a page sends at most five
 const EMAIL_TIMEOUT_MS = 5000;
 const REPEAT_EMAIL_MS = REPEAT_HOURS * 60 * 60_000; // The same error again: one email every 6 hours at most
-const MAX_EMAILS_PER_HOUR = 10; // Per server instance, whatever arrives
+const PAUSE_MS = 60_000; // After Resend refuses an email or can't be reached: a minute before this instance asks again
 // Resend's shared sender: without a domain of your own there, it delivers only to the address you signed up with
 const SENDER = 'Argus alerts <onboarding@resend.dev>';
 const EMAIL_ADDRESS = /^[^\s@<>,]+@[^\s@<>,]+\.[^\s@<>,]+$/;
+const PAGE = /^\/[\w\-.~!$&'()*+,;=:@%\/]*$/; // What a browser's location.pathname can hold
+const BUILD = /^[\w.-]+$/; // A commit, or "local"
 
 const recentReports = new Map<string, number[]>();
 const emailed = new Map<string, { at: number; since: number }>(); // Fingerprint -> its last email, and reports of it since
-let emailsSent: number[] = [];
+const sending = new Map<string, number>(); // Fingerprint -> reports of it that came in while its email was on its way
+let slots = { hour: '', next: 0 }; // This hour's first slot this instance hasn't seen used
+let heldBack = 0; // Reports this instance didn't email since its last alert
+let pausedUntil = 0;
 
 // Plain text of a bounded length: no control characters
 const text = (value: unknown, max: number) =>
@@ -53,41 +66,84 @@ async function fingerprint(report: AlertReport): Promise<string> {
   return [...hash.slice(0, 4)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Emails a report through Resend: each kind of error once, then at most every 6 hours (throttled per instance). */
-async function toEmail(report: AlertReport, id: string, origin: string, key: string, to: string): Promise<void> {
+/** One email through Resend under an idempotency key; null when Resend couldn't be reached in time. */
+async function send(email: AlertEmail, idempotencyKey: string, key: string, to: string): Promise<Response | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'User-Agent': 'argus-error-reports', 'Idempotency-Key': idempotencyKey },
+      // The same subject for the same fault, so its emails stay in one thread
+      body: JSON.stringify({ from: SENDER, to, subject: email.subject, html: email.html, text: email.text }),
+      signal: controller.signal,
+    });
+    if (!res.ok && res.status !== 409) {
+      const reason = await res.json().then((body: any) => (typeof body?.message === 'string' ? `: ${body.message.slice(0, 200)}` : ''), () => '');
+      console.error(`[report] Resend ${res.status}${reason}`);
+    }
+    return res;
+  } catch {
+    console.error('[report] Resend could not be reached in time');
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Emails a report through Resend: each kind of error once, then at most every 6 hours, within the site's
+ * alerts for the hour. An email that doesn't go out isn't counted as sent, so the next report of it tries again.
+ */
+async function toEmail(report: AlertReport, id: string, site: URL, key: string, to: string): Promise<void> {
   const now = Date.now();
   const last = emailed.get(id);
   if (last && now - last.at < REPEAT_EMAIL_MS) {
     last.since += 1;
     return;
   }
-  emailsSent = emailsSent.filter(t => now - t < 60 * 60_000);
-  if (emailsSent.length >= MAX_EMAILS_PER_HOUR) {
-    if (last) last.since += 1;
+  const pending = sending.get(id);
+  if (pending !== undefined) {
+    sending.set(id, pending + 1);
     return;
   }
-  emailed.set(id, { at: now, since: 0 });
-  if (emailed.size > 2000) {
-    for (const [fp, entry] of emailed) if (now - entry.at >= REPEAT_EMAIL_MS) emailed.delete(fp);
-  }
-  emailsSent.push(now);
-  const email = alertEmail(report, { id, at: now, origin, ...(last ? { repeat: { times: last.since + 1, since: last.at } } : {}) });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
+  const hold = () => {
+    heldBack += 1;
+    if (last) last.since += 1;
+  };
+  const hour = new Date(now).toISOString().slice(0, 13); // "2026-10-10T13", in UTC
+  if (slots.hour !== hour) slots = { hour, next: 0 };
+  const budget = slots;
+  if (now < pausedUntil || budget.next >= ALERTS_PER_HOUR) return hold();
+
+  sending.set(id, 0);
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'User-Agent': 'argus-error-reports' },
-      // The same subject for the same fault, so its emails stay in one thread
-      body: JSON.stringify({ from: SENDER, to, subject: email.subject, html: email.html, text: email.text }),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const reason = await res.json().then((body: any) => (typeof body?.message === 'string' ? `: ${body.message.slice(0, 200)}` : ''), () => '');
-      console.error(`[report] Resend ${res.status}${reason}`);
+    const held = heldBack;
+    const email = alertEmail(report, { id, at: now, origin: site.origin, heldBack: held, ...(last ? { repeat: { times: last.since + 1, since: last.at } } : {}) });
+    while (budget.next < ALERTS_PER_HOUR) {
+      const slot = budget.next;
+      const res = await send(email, `${process.env.VERCEL_PROJECT_PRODUCTION_URL || site.host}/alerts/${hour}/${slot}`, key, to);
+      if (res?.status === 409) {
+        // Another instance has used this slot, or is using it right now
+        budget.next = Math.max(budget.next, slot + 1);
+        continue;
+      }
+      if (!res?.ok) {
+        // Refused or unreachable (said in the log): not counted as sent, and Resend gets a minute
+        pausedUntil = Date.now() + PAUSE_MS;
+        return hold();
+      }
+      budget.next = Math.max(budget.next, slot + 1);
+      heldBack -= held;
+      emailed.set(id, { at: now, since: sending.get(id) ?? 0 });
+      if (emailed.size > 2000) {
+        for (const [fp, entry] of emailed) if (now - entry.at >= REPEAT_EMAIL_MS) emailed.delete(fp);
+      }
+      return;
     }
+    hold(); // This hour's alerts have all gone out
   } finally {
-    clearTimeout(timer);
+    sending.delete(id);
   }
 }
 
@@ -108,32 +164,28 @@ export default async function handler(req: Request): Promise<Response> {
   } catch {
     return new Response(null, { status: 400 });
   }
+  const build = text(data?.build, 40);
   const report: AlertReport = {
     kind: data?.kind === 'rejection' ? 'rejection' : 'error',
     message: text(data?.message, 300).trim(),
     source: text(data?.source, 300),
     stack: text(data?.stack, 1500),
     page: text(data?.page, 200) || '/',
-    build: text(data?.build, 40) || 'unknown',
+    build: BUILD.test(build) ? build : 'unknown',
     site: site.host,
     browser: text(req.headers.get('user-agent'), 200),
   };
-  if (!report.message || (data?.kind !== 'error' && data?.kind !== 'rejection')) return new Response(null, { status: 400 });
+  if (!report.message || (data?.kind !== 'error' && data?.kind !== 'rejection') || !PAGE.test(report.page)) {
+    return new Response(null, { status: 400 });
+  }
 
   const id = await fingerprint(report);
   console.error(`[live-error ${id}] ${JSON.stringify(report)}`);
   const key = process.env.RESEND_API_KEY;
   const to = process.env.REPORTS_EMAIL?.trim();
   if (key && to) {
-    if (!EMAIL_ADDRESS.test(to)) {
-      console.error('[report] REPORTS_EMAIL is not an email address');
-    } else {
-      try {
-        await toEmail(report, id, site.origin, key, to);
-      } catch {
-        // Resend unreachable or slow: the log line above still has it
-      }
-    }
+    if (!EMAIL_ADDRESS.test(to)) console.error('[report] REPORTS_EMAIL is not an email address');
+    else await toEmail(report, id, site, key, to);
   }
   return new Response(null, { status: 204 });
 }

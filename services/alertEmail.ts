@@ -6,8 +6,9 @@
 // since). Built for phones first: mail apps take little CSS, so the layout is tables with inline styles,
 // and two optional style blocks only tighten it on narrow screens and give dark-mode colours where the
 // mail app supports them (one that drops them still shows the whole email). A plain-text copy goes with
-// it. Everything in a report comes from a visitor's browser, so all of it is escaped, and the one link
-// goes to the page on the site itself.
+// it. Everything in a report comes from a visitor's browser (or from anything posing as one), so all of
+// it is escaped, any address of another site in it is removed, and the one link goes to the page on the
+// site itself.
 
 export interface AlertReport {
   kind: 'error' | 'rejection';
@@ -25,6 +26,7 @@ export interface AlertContext {
   at: number; // When this report came in (ms)
   origin: string; // The site's own origin, for the link to the page
   repeat?: { times: number; since: number }; // Seen `times` more times since the email sent at `since`
+  heldBack?: number; // Other reports this server instance didn't email since its last alert (the hour's alerts were out)
 }
 
 export interface AlertEmail {
@@ -35,6 +37,8 @@ export interface AlertEmail {
 
 /** The same error is emailed again at most this often (per server instance). */
 export const REPEAT_HOURS = 6;
+/** Alert emails an hour for the whole site, however many server instances (api/report.ts). */
+export const ALERTS_PER_HOUR = 2;
 
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
@@ -86,6 +90,20 @@ export function browserName(ua: string): string {
   return os ? `${name} on ${os}` : name;
 }
 
+// A web address, with or without its scheme (mail apps make "www.…" clickable too)
+const ADDRESS = /\b(?:[a-z][a-z\d+.-]*:\/\/|www\.)[^\s<>"'`]+/gi;
+
+/** The text with every address of another site replaced, so an alert can't carry a link off the site. */
+export function offSiteLinksRemoved(value: string, origin: string): string {
+  return value.replace(ADDRESS, address => {
+    try {
+      return new URL(address).origin === new URL(origin).origin ? address : '[link removed]';
+    } catch {
+      return '[link removed]';
+    }
+  });
+}
+
 /** A link to the page the error happened on, and only ever to a page on the site itself. */
 export function pageLink(origin: string, page: string): string | null {
   if (!/^\/(?![/\\])/.test(page)) return null;
@@ -113,8 +131,10 @@ function frames(stack: string): { fn: string; at: string }[] {
   });
 }
 
-export function alertEmail(report: AlertReport, context: AlertContext): AlertEmail {
-  const { id, at, origin, repeat } = context;
+export function alertEmail(reported: AlertReport, context: AlertContext): AlertEmail {
+  const { id, at, origin, repeat, heldBack = 0 } = context;
+  const clean = (value: string) => offSiteLinksRemoved(value, origin);
+  const report = { ...reported, message: clean(reported.message), source: clean(reported.source), stack: clean(reported.stack), browser: clean(reported.browser) };
   const status = repeat ? STATUS.repeat : STATUS[report.kind];
   const statusLabel = repeat ? `${STATUS.repeat.label} · ${STATUS[report.kind].label}` : status.label;
   const where = `${report.site}${report.page}`;
@@ -125,7 +145,10 @@ export function alertEmail(report: AlertReport, context: AlertContext): AlertEma
     : LEADS[report.kind];
   const list = frames(report.stack);
   const subject = `Live error: ${report.message.replace(/\s+/g, ' ').slice(0, 90)} [${id}]`;
-  const footer = `Fingerprint ${id}, in the server log as [live-error ${id}]. This error is emailed again at most every ${REPEAT_HOURS} hours.`;
+  const held = heldBack > 0
+    ? ` ${heldBack} other ${heldBack === 1 ? 'report' : 'reports'} reached this server since its last alert without an email: the site sends at most ${ALERTS_PER_HOUR} alerts an hour.`
+    : '';
+  const footer = `Fingerprint ${id}, in the server log as [live-error ${id}]. This error is emailed again at most every ${REPEAT_HOURS} hours.${held}`;
 
   const text = [
     `${statusLabel} on ${where}`,
