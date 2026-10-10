@@ -40,9 +40,7 @@ const MAX_CHECKED = 8; // Sentences sent to the check at once
 
 // Same origins as /api/analyze: other websites can't spend this app's AI quota from their pages
 const ALLOWED_ORIGINS = new Set<string>([
-  // The deployed address goes here too (requests from the page's own address always pass)
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
+  // Any other address the app is served from goes here (the page's own address always passes)
 ]);
 
 // --- PROMPTS ---

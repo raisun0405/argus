@@ -22,13 +22,12 @@ const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 const LLM_TIMEOUT_MS = 18000;
 const UNIPROT_TIMEOUT_MS = 3000;
 
-// Origins permitted to call this function. Add your production domain here.
-// Requests without a matching Origin header are rejected (prevents drive-by
-// scrapers using your endpoint as a free LLM proxy).
+// Origins permitted to call this function from a browser, besides the page's own address, which always
+// passes (so does local development: the dev server's bridge keeps requests same-origin). This stops other
+// websites' pages from spending the AI quota through their visitors' browsers. It can't stop a script:
+// anything that isn't a browser can send whatever Origin it likes.
 const ALLOWED_ORIGINS = new Set<string>([
-  // The deployed address goes here too (requests from the page's own address always pass)
-  'http://localhost:3000',
-  'http://127.0.0.1:3000', // Same machine; needed when another dev server holds localhost:3000 on IPv6
+  // Any other address the app is served from goes here
 ]);
 
 // --- PROMPT ---

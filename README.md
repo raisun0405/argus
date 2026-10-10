@@ -257,7 +257,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 
 The Edge Functions are the only places the keys live. They enforce:
 
-- **Origin check:** only the deployed domains, local development and same-origin requests are served.
+- **Origin check:** browsers can call the functions only from the app's own pages, so other websites can't spend its AI quota through their visitors. It doesn't stop a script, which can send any Origin it likes; the rate limits below are what bound that.
 - **Rate limits:** 12 questions a minute per visitor; 6 investigations a minute (two LLM calls each); 4 co-folds per 10 minutes and 15 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
 - **Input limits:** questions up to 2,000 characters (1,000 for an investigation, whose step results are capped at 7,000); the context and facts the browser sends are capped and sanitised. Co-fold takes up to 1,200 residues, 8 chains and a 60-residue pocket, PDB codes and SMILES only, and builds its own requests from them.
 - **Timeouts and clean errors:** an 18-second limit on the LLM call and 4 minutes on a prediction; upstream error details are logged, never returned.

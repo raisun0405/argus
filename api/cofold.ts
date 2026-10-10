@@ -41,9 +41,7 @@ const KEEPALIVE_MS = 5000;
 const PREDICTION = { recycling_steps: 3, sampling_steps: 200, diffusion_samples: 1, sampling_steps_affinity: 200, diffusion_samples_affinity: 5 };
 
 const ALLOWED_ORIGINS = new Set<string>([
-  // The deployed address goes here too (requests from the page's own address always pass)
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
+  // Any other address the app is served from goes here (the page's own address always passes)
 ]);
 
 // --- TYPES ---

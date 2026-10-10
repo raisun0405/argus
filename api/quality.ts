@@ -14,9 +14,7 @@ export const config = { runtime: 'edge' };
 
 // Same origins as /api/analyze: other websites can't use this as a proxy
 const ALLOWED_ORIGINS = new Set<string>([
-  // The deployed address goes here too (requests from the page's own address always pass)
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
+  // Any other address the app is served from goes here (the page's own address always passes)
 ]);
 
 const PDB_ID = /^[1-9][a-z0-9]{3}$/;
