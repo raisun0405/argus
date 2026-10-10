@@ -239,8 +239,9 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [paletteOpen, shortcutsOpen]);
 
-  // On a phone the inactive pane is hidden, never unmounted: unmounting would throw away the
-  // conversation and the viewer's state (open tool, selection, camera) every time the tab changed.
+  // A pane out of sight is hidden, never unmounted: the chat when it is collapsed on a desktop or on
+  // the other tab on a phone, the viewer on a phone. Unmounting would throw away the conversation,
+  // anything still running in it (an answer, a co-fold, a tour), and the viewer's state.
   const chatHidden = narrow ? phoneTab !== 'chat' : !chatOpen;
   const workspaceHidden = narrow && phoneTab !== 'structure';
 
@@ -258,52 +259,50 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col argus-app w-screen overflow-hidden bg-canvas">
       <div className="flex flex-1 min-h-0 w-full">
-        {(chatOpen || narrow) && (
-          <div
-            className={`h-full flex-shrink-0 z-20 ${chatHidden ? 'hidden' : ''}`}
-            // Never more than 45% of the window: on a small screen the chat gives way to the structure
-            style={narrow ? { width: '100%' } : { width: chatWidth, maxWidth: '45vw' }}
-          >
-            <ReasoningEngine
-              onAnalysisComplete={(data, options) => {
-                // Actions still waiting for another structure won't get it now
-                const waiting = actionWaiterRef.current;
-                if (waiting?.request.target && waiting.request.target !== data.pdbId) settleActions(waiting.request.id, null, 'another structure opened first');
-                setCurrentAnalysis(data);
-                setTourHighlights([]); // Reset any tour when new data arrives
-                // A phone shows a newly opened structure; an answer about the one already open stays
-                // readable in the chat, and the 3D switch carries a dot for what changed there
-                if (narrow && !options?.quiet) {
-                  if (data.pdbId !== currentAnalysis.pdbId) setPhoneTab('structure');
-                  else if (phoneTab === 'chat' && data.highlights.length > 0) setUnseen3d(true);
-                }
-              }}
-              onRunActions={runActions}
-              onTourStep={(highlights) => setTourHighlights(highlights)}
-              onSubtitleChange={(text) => setSubtitle(text)}
-              currentAnalysis={currentAnalysis}
-              isInitialLoad={true}
-              similarityRequest={similarityRequest}
-              partnersRequest={partnersRequest}
-              cofoldRequest={cofoldRequest}
-              askRequest={askRequest}
-              onBusyChange={setIsChatBusy}
-              sharedAnalysis={sharedView?.analysis}
-              sharedError={shared && 'error' in shared ? shared.error : null}
-              getShareLink={getShareLink}
-              shareDisabledReason={canShare(currentAnalysis)
-                ? undefined
-                : `A ${isCofoldId(currentAnalysis.pdbId) ? 'co-folded complex' : 'folded sequence'} lives only in this browser, so it can't be shared yet`}
-              onOpenPalette={() => setPaletteOpen(true)}
-              onFocusHighlights={(highlights) => {
-                if (commandsRef.current?.focusHighlights(highlights) && narrow) setPhoneTab('structure');
-              }}
-              headerStart={paneSwitch}
-              onTourState={setTour}
-              tourControlsRef={tourControlsRef}
-            />
-          </div>
-        )}
+        <div
+          className={`h-full flex-shrink-0 z-20 ${chatHidden ? 'hidden' : ''}`}
+          // Never more than 45% of the window: on a small screen the chat gives way to the structure
+          style={narrow ? { width: '100%' } : { width: chatWidth, maxWidth: '45vw' }}
+        >
+          <ReasoningEngine
+            onAnalysisComplete={(data, options) => {
+              // Actions still waiting for another structure won't get it now
+              const waiting = actionWaiterRef.current;
+              if (waiting?.request.target && waiting.request.target !== data.pdbId) settleActions(waiting.request.id, null, 'another structure opened first');
+              setCurrentAnalysis(data);
+              setTourHighlights([]); // Reset any tour when new data arrives
+              // A phone shows a newly opened structure; an answer about the one already open stays
+              // readable in the chat, and the 3D switch carries a dot for what changed there
+              if (narrow && !options?.quiet) {
+                if (data.pdbId !== currentAnalysis.pdbId) setPhoneTab('structure');
+                else if (phoneTab === 'chat' && data.highlights.length > 0) setUnseen3d(true);
+              }
+            }}
+            onRunActions={runActions}
+            onTourStep={(highlights) => setTourHighlights(highlights)}
+            onSubtitleChange={(text) => setSubtitle(text)}
+            currentAnalysis={currentAnalysis}
+            isInitialLoad={true}
+            similarityRequest={similarityRequest}
+            partnersRequest={partnersRequest}
+            cofoldRequest={cofoldRequest}
+            askRequest={askRequest}
+            onBusyChange={setIsChatBusy}
+            sharedAnalysis={sharedView?.analysis}
+            sharedError={shared && 'error' in shared ? shared.error : null}
+            getShareLink={getShareLink}
+            shareDisabledReason={canShare(currentAnalysis)
+              ? undefined
+              : `A ${isCofoldId(currentAnalysis.pdbId) ? 'co-folded complex' : 'folded sequence'} lives only in this browser, so it can't be shared yet`}
+            onOpenPalette={() => setPaletteOpen(true)}
+            onFocusHighlights={(highlights) => {
+              if (commandsRef.current?.focusHighlights(highlights) && narrow) setPhoneTab('structure');
+            }}
+            headerStart={paneSwitch}
+            onTourState={setTour}
+            tourControlsRef={tourControlsRef}
+          />
+        </div>
 
         {chatOpen && !narrow && (
           <ResizeHandle
