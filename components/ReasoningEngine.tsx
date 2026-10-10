@@ -584,7 +584,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       const shown = await correctIdentity(analysis);
       trail.corrected = shown !== analysis;
       analysis = shown;
-      rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis);
+      // An answer about the wrong protein isn't kept for the next time the question is asked: replayed,
+      // its corrected heading would pass the very check it failed
+      if (!trail.corrected) rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis);
       const checks = await collectChecks(analysis, trail);
 
       // 2. Draft Response & Pre-load Audio (skipped while narration is disabled: nothing to load)

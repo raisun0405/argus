@@ -2,6 +2,8 @@
 //  1. 2JDF called "Human Insulin Hexamer": the retry carries the correction, and the AI's fixed answer is
 //     what the chat shows
 //  2. the AI repeats the mistake: the heading becomes 2JDF's own title and the answer opens with the correction
+//  2b. the same question again: the corrected answer wasn't kept, so it goes to the AI again, and the check
+//     never says "Protein name matches" under the correction
 //  3. a right answer: no retry at all
 //   node cdp-identity.mjs [base]
 import { BASE } from '../lib/env.mjs';
@@ -49,10 +51,21 @@ try {
   const second = await b.ev(lastAnswer);
   check('one retry, then the heading is 2JDF\'s own title and the answer opens with the correction', calls.length === 2 && second.includes('Human gamma-B crystallin') && second.includes('Correction: 2JDF is "Human gamma-B crystallin", which isn\'t what this answer describes.') && !/Human Insulin Hexamer/.test(second), second.slice(0, 200));
 
+  console.log('\n[2b. the same question again]');
+  calls.length = 0;
+  await b.say('show me another experimental structure');
+  await b.waitFor(`${answers} >= 3`, 60000);
+  await sleep(500);
+  await b.ev(`[...document.querySelectorAll('[data-message="assistant"]')].at(-1)?.querySelector('[data-checks-toggle]')?.click()`);
+  await sleep(300);
+  const rows = await b.ev(`[...([...document.querySelectorAll('[data-message="assistant"]')].at(-1)?.querySelectorAll('[data-check-row]') ?? [])].map(r => r.dataset.checkState + ': ' + r.textContent.replace(/\\s+/g, ' ').trim())`);
+  check('the corrected answer wasn\'t kept: the question goes to the AI again', calls.length >= 1, `${calls.length} call(s)`);
+  check('...and the check never says the protein name matches under the correction', (await b.ev(lastAnswer)).includes('Correction:') && rows.length > 0 && !rows.some(r => /Protein name matches/.test(r)), rows.join(' | '));
+
   console.log('\n[3. a right answer]');
   calls.length = 0;
   await b.say('show me hemoglobin');
-  await b.waitFor(`${answers} >= 3`, 60000);
+  await b.waitFor(`${answers} >= 4`, 60000);
   await sleep(500);
   check('no retry, the answer as written', calls.length === 1 && (await b.ev(lastAnswer)).includes('Human deoxyhemoglobin') && !(await b.ev(lastAnswer)).includes('Correction'), `${calls.length} call(s)`);
   check('no errors in the page', b.problems.filter(p => !/favicon|ResizeObserver|Failed to load resource/.test(p)).length === 0, b.problems.slice(0, 3).join(' | '));

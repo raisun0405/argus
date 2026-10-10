@@ -450,6 +450,7 @@ interface HintProtein {
 /** What the answer check needs: every residue and ligand the file really has. */
 interface StructureIndex {
   residues: Map<string, string>; // "A|87" -> "HIS": observed polymer residues (author numbering, no insertion code)
+  insertions: Map<string, string>; // "H|52A" -> "PRO": observed residues with an insertion code (antibodies' 52A, 100C)
   ligands: Map<string, string> | null; // "A|142" -> "HEM"; null when the ligand list couldn't be loaded
 }
 
@@ -559,13 +560,19 @@ const pdbFactLines = async (id: string): Promise<FactLines> => {
       molecule.asyms.forEach((asym, i) => polymerChain.set(asym, molecule.chains[i] ?? asym));
     }
     const residues = new Map<string, string>();
+    const insertions = new Map<string, string>();
     for (const [asym, list] of listing) {
       const chain = polymerChain.get(asym);
       if (!chain) continue;
-      for (const r of list) if (r.observed && !r.insCode) residues.set(`${chain}|${r.authorNumber}`, r.name.toUpperCase());
+      for (const r of list) {
+        if (!r.observed) continue;
+        if (r.insCode) insertions.set(`${chain}|${r.authorNumber}${r.insCode.toUpperCase()}`, r.name.toUpperCase());
+        else residues.set(`${chain}|${r.authorNumber}`, r.name.toUpperCase());
+      }
     }
     index = {
       residues,
+      insertions,
       ligands: ligands ? new Map(ligands.map(l => [`${l.chain}|${l.resi}`, l.id] as const)) : null,
     };
   }
@@ -586,6 +593,7 @@ const alphaFoldFactLines = async (accession: string): Promise<FactLines> => {
     hints: [{ sequence: entry.sequence, locate: position => own.get(position) ?? null, residues: [...own.values()] }],
     index: {
       residues: new Map([...own].map(([position, r]) => [`A|${position}`, r.name.toUpperCase()] as const)),
+      insertions: new Map(), // Numbered like UniProt: no insertion codes
       ligands: new Map(), // Predicted models carry no ligands
     },
     incomplete: false,
@@ -747,20 +755,24 @@ const NUMBERING_NOTE = "(Highlights use this file's residue numbers: ";
 const titleCase = (code: string) => code.charAt(0) + code.slice(1).toLowerCase();
 
 /**
- * Residue types a label or the answer's text names, by residue number: "Lys745" -> 745: {LYS};
- * "p.Thr790Met" or "T790M" -> 790: {THR, MET} (wild type or mutant). Bare "A87" is left alone: it
- * may mean chain A.
+ * Residue types a label or the answer's text names, by place: "Lys745" -> "745": {LYS};
+ * "p.Thr790Met" or "T790M" -> "790": {THR, MET} (wild type or mutant); "Pro52A" -> "52A": {PRO}, a
+ * residue with an insertion code (antibodies). Bare "A87" is left alone: it may mean chain A.
  */
 const labelledTypes = (label: string) => {
-  const byNumber = new Map<number, Set<string>>();
-  const add = (position: number, ...codes: (string | undefined)[]) => {
-    const set = byNumber.get(position) ?? new Set<string>();
+  const byPlace = new Map<string, Set<string>>();
+  const add = (place: string, ...codes: (string | undefined)[]) => {
+    const set = byPlace.get(place) ?? new Set<string>();
     for (const code of codes) if (code) set.add(code.toUpperCase());
-    byNumber.set(position, set);
+    byPlace.set(place, set);
   };
-  for (const m of label.matchAll(new RegExp(`\\b(${THREE_NAMES})[\\s-]?(\\d{1,5})(${THREE_NAMES})?(?![0-9])`, 'gi'))) add(Number(m[2]), m[1], m[3]);
-  for (const m of label.matchAll(/\b([ACDEFGHIKLMNPQRSTVWY])(\d{1,5})([ACDEFGHIKLMNPQRSTVWY])\b/g)) add(Number(m[2]), THREE[m[1]], THREE[m[3]]);
-  return byNumber;
+  for (const m of label.matchAll(new RegExp(`\\b(${THREE_NAMES})[\\s-]?(\\d{1,5})(?:(${THREE_NAMES})|([A-Za-z])(?![A-Za-z]))?(?![0-9])`, 'gi'))) {
+    // A capital letter right after the number is an insertion code ("Pro52A"); a small one is not
+    const insertion = m[4] && m[4] === m[4].toUpperCase() ? m[4] : '';
+    add(`${Number(m[2])}${insertion}`, m[1], m[3]);
+  }
+  for (const m of label.matchAll(/\b([ACDEFGHIKLMNPQRSTVWY])(\d{1,5})([ACDEFGHIKLMNPQRSTVWY])\b/g)) add(String(Number(m[2])), THREE[m[1]], THREE[m[3]]);
+  return byPlace;
 };
 
 /** An answer judged against the structure it names: what doesn't fit, and how many places it marks. */
@@ -837,6 +849,10 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
           // "Heme group" on a protein residue: the label names a ligand, so it must be that ligand
           problems.add(`${h.chain}:${resi} is a ${titleCase(residue)} residue, not the ligand named in${label}`);
           mark(at, 'wrong');
+        } else if (ligand && named.size === 0 && misnamedLigand(h.label ?? '', ligand)) {
+          // A ligand is there, but not the one the label names ("ATP" on an ADP)
+          problems.add(`${h.chain}:${resi} is ${ligand} in this file, not the ligand named in${label}`);
+          mark(at, 'wrong');
         } else if (ligand) mark(at, 'ligand');
         else if (residue && !(namesLigand && !index.ligands)) mark(at, 'residue');
         else mark(at, 'unchecked');
@@ -852,7 +868,7 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         }
         continue;
       }
-      const expected = named.get(resi);
+      const expected = named.get(String(resi));
       const actual = PARENT[residue] ?? residue;
       if (expected && expected.size > 0 && !expected.has(actual)) {
         problems.add(`${h.chain}:${resi} is ${titleCase(residue)} in this file, not ${[...expected].map(titleCase).join('/')} as labelled${label}`);
@@ -887,6 +903,16 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     const resi = Number(number);
     atNumber.set(resi, (atNumber.get(resi) ?? new Map<string, string>()).set(chain, PARENT[type] ?? type));
   }
+  // Residues with an insertion code, by place and by number: "52A" -> {PRO}; 52 -> {PRO, GLY}
+  const atInsertion = new Map<string, Set<string>>();
+  const insertedAt = new Map<number, Set<string>>();
+  for (const [at, type] of index.insertions) {
+    const place = at.split('|')[1];
+    const parent = PARENT[type] ?? type;
+    atInsertion.set(place, (atInsertion.get(place) ?? new Set<string>()).add(parent));
+    const resi = parseInt(place, 10);
+    insertedAt.set(resi, (insertedAt.get(resi) ?? new Set<string>()).add(parent));
+  }
   const sequences = (hintCache.get(key) ?? []).map(p => p.sequence);
   // The answer's own words only: the note this app appends to the summary is not the AI's claim (cut
   // from the summary alone, so the tour and quiz after it are still read)
@@ -897,17 +923,34 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   const unsure = degraded.has(key);
   let named = 0;
   let misnamed = 0;
-  for (const [resi, types] of labelledTypes(text)) {
+  for (const [place, types] of labelledTypes(text)) {
+    const resi = parseInt(place, 10);
+    const letter = place.slice(String(resi).length);
     const here = atNumber.get(resi);
-    if (!here) continue; // Not a residue of this file: another structure in passing, or prose
-    // When the answer marks this number, the chains it marks say which residue it means
-    const chains = [...here.keys()].filter(c => marked.has(`${c}|${resi}`));
-    const inFile = new Set((chains.length ? chains : [...here.keys()]).map(c => here.get(c) as string));
-    const allowed = new Set([...inFile, ...sequences.map(s => THREE[s[resi - 1]]?.toUpperCase()).filter(Boolean) as string[]]);
+    const inserted = atInsertion.get(place); // "Pro52A", and the file has a 52A
+    // "His87A" where the file has no 87A: residue 87 of chain A
+    const chainOnly = letter && !inserted && here?.has(letter) ? letter : null;
+    if (!here && !inserted && !insertedAt.has(resi)) continue; // Not a residue of this file: another structure in passing, or prose
+    let inFile: Set<string>;
+    if (inserted) inFile = inserted;
+    else if (chainOnly) inFile = new Set([here!.get(chainOnly) as string]);
+    else if (here) {
+      // When the answer marks this number, the chains it marks say which residue it means
+      const chains = [...here.keys()].filter(c => marked.has(`${c}|${resi}`));
+      inFile = new Set((chains.length ? chains : [...here.keys()]).map(c => here.get(c) as string));
+    } else inFile = insertedAt.get(resi) as Set<string>;
+    // Also right: the proteins' own residue at that number (UniProt numbering), and the residue at that
+    // number with an insertion code or without one (a code left out or added: "Pro52" for Pro52A)
+    const allowed = new Set([
+      ...inFile,
+      ...sequences.map(s => THREE[s[resi - 1]]?.toUpperCase()).filter(Boolean) as string[],
+      ...(insertedAt.get(resi) ?? []),
+      ...(inserted && here ? here.values() : []),
+    ]);
     if ([...types].some(t => allowed.has(t))) named++;
     else if (!unsure) {
       misnamed++;
-      problems.add(`the answer's text says ${[...types].map(titleCase).join('/')}${resi}, but residue ${resi} is ${[...inFile].map(titleCase).join('/')} in this file`);
+      problems.add(`the answer's text says ${[...types].map(titleCase).join('/')}${place}, but residue ${chainOnly ? `${chainOnly}:${resi}` : place} is ${[...inFile].map(titleCase).join('/')} in this file`);
     }
   }
 
@@ -1080,6 +1123,30 @@ const namedLigandIds = (label: string) => {
   return ids;
 };
 
+/**
+ * The ligand kinds (rows of LIGAND_WORDS) a label says a marked molecule is. A name that only
+ * describes a site ("ATP-binding pocket", "heme site") says nothing about the molecule there.
+ */
+const claimedLigands = (label: string) => {
+  const molecule = label.replace(/[\w+]+[\s-]+(?:binding|bound|site|pocket|cleft)\b/gi, ' ');
+  return LIGAND_WORDS.flatMap(([pattern], kind) => (pattern.test(molecule) ? [kind] : []));
+};
+const ligandKind = (id: string) => LIGAND_WORDS.findIndex(([, codes]) => codes.includes(id));
+const HEME = ligandKind('HEM');
+const HEME_PARTS = [ligandKind('FE'), ligandKind('OXY')]; // A heme's iron, and the oxygen on it
+
+/**
+ * Whether a label calls the ligand at a place something else ("ATP" on an ADP, "zinc" on an iron).
+ * Only when both are ligands known here by name, so an unfamiliar one is never called wrong; the iron
+ * of a heme, and the oxygen it holds, count as the heme.
+ */
+const misnamedLigand = (label: string, id: string) => {
+  const claimed = claimedLigands(label);
+  const actual = ligandKind(id);
+  if (!claimed.length || actual < 0 || claimed.includes(actual)) return false;
+  return !(actual === HEME && claimed.some(kind => HEME_PARTS.includes(kind)));
+};
+
 export interface CorrectedAnswer {
   analysis: ProteinAnalysis;
   conversions: string[]; // "UniProt Lys745 = A:Lys721", for the note added to the summary
@@ -1115,6 +1182,10 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     const ids = new Set(ligandIds.filter(id => new RegExp(`(^|[^A-Z0-9])${id}([^A-Z0-9]|$)`).test(label.toUpperCase())));
     for (const [pattern, codes] of LIGAND_WORDS) if (pattern.test(label)) codes.filter(c => ligandIds.includes(c)).forEach(c => ids.add(c));
     if (ids.size > 0) return ids;
+    // A label naming a ligand the file doesn't hold has nothing right to be moved onto ("ATP" where
+    // the file holds only ADP), except a heme's iron or the oxygen on it: the heme
+    const claimed = claimedLigands(label);
+    if (claimed.length) return claimed.some(kind => HEME_PARTS.includes(kind)) ? new Set(ligandIds.filter(id => ligandKind(id) === HEME)) : ids;
     const metals = ligandIds.filter(id => METALS.has(id));
     const others = ligandIds.filter(id => !METALS.has(id) && !ADDITIVES.has(id) && !['SO4', 'PO4', 'CL', 'NA', 'K', 'IOD', 'BR'].includes(id));
     if (h.category === 'metal' && metals.length === 1) return new Set(metals);
@@ -1131,7 +1202,9 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     ...(analysis.quiz?.answerHighlights ?? []),
   ];
   const usesUniProtNumbering = allHighlights.some(h =>
-    [...labelledTypes(h.label ?? '')].some(([resi, types]) => {
+    [...labelledTypes(h.label ?? '')].some(([place, types]) => {
+      const resi = Number(place);
+      if (!Number.isInteger(resi)) return false; // An insertion code ("52A"): not a UniProt number
       const inFile = index.residues.get(`${h.chain}|${resi}`);
       if (inFile && types.has(PARENT[inFile] ?? inFile)) return false;
       return proteins.some(p => {
@@ -1169,7 +1242,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         continue;
       }
 
-      const expected = named.get(resi);
+      const expected = named.get(String(resi));
       const isNamed = expected !== undefined && expected.size > 0;
       const fits = residue && (!isNamed || expected.has(PARENT[residue] ?? residue));
       if (fits || (!residue && ligand) || (!isNamed && !usesUniProtNumbering)) { keep(h.chain, resi); continue; }
