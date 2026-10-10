@@ -704,9 +704,11 @@ export const getStructureFacts = async (structureId: string | undefined, query =
 };
 
 // --- ANSWER CHECK ---
-// Highlights are compared with the residues and ligands the chosen structure really has.
-// Only clear contradictions count: a residue or chain that isn't there, a ligand that isn't
-// there, or a residue whose type differs from a three-letter name in its label ("Lys745").
+// Highlights are compared with the residues and ligands the chosen structure really has, and the
+// amino acids the answer's own text names with the ones at those numbers. Only clear contradictions
+// count: a residue or chain that isn't there, a ligand that isn't there, or a residue whose type
+// differs from a three-letter name in its label ("Lys745") or in the text ("the basic patch
+// (Lys127, Lys135, Lys141)" when 135 and 141 are not lysines).
 
 const MAX_PROBLEMS = 8;
 // Modified residues count as their parent amino acid ("Met100" in a selenomethionine structure)
@@ -715,11 +717,14 @@ const PARENT: Record<string, string> = {
   KCX: 'LYS', LLP: 'LYS', MLY: 'LYS', M3L: 'LYS', ALY: 'LYS', HYP: 'PRO', HIC: 'HIS', NEP: 'HIS', CGU: 'GLU', PCA: 'GLU',
 };
 const THREE_NAMES = 'Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val';
+// What correctAnswer appends to a summary. The text check reads what the AI wrote, not this.
+const NUMBERING_NOTE = "(Highlights use this file's residue numbers: ";
 const titleCase = (code: string) => code.charAt(0) + code.slice(1).toLowerCase();
 
 /**
- * Residue types a label names, by residue number: "Lys745" -> 745: {LYS}; "p.Thr790Met" or
- * "T790M" -> 790: {THR, MET} (wild type or mutant). Bare "A87" is left alone: it may mean chain A.
+ * Residue types a label or the answer's text names, by residue number: "Lys745" -> 745: {LYS};
+ * "p.Thr790Met" or "T790M" -> 790: {THR, MET} (wild type or mutant). Bare "A87" is left alone: it
+ * may mean chain A.
  */
 const labelledTypes = (label: string) => {
   const byNumber = new Map<number, Set<string>>();
@@ -742,9 +747,11 @@ export interface AnswerInspection {
   missing: number; // Places it marks that the file doesn't have
   wrong: number; // Places the file has, but not as labelled (another residue type, a residue for a ligand)
   unchecked: number; // Ligand marks that couldn't be checked: the ligand list didn't load
+  named: number; // Amino acids named in the answer's text that are that amino acid at that number
+  misnamed: number; // ...and those that are not
 }
 
-const NO_MARKS = { residues: 0, ligands: 0, missing: 0, wrong: 0, unchecked: 0 };
+const NO_MARKS = { residues: 0, ligands: 0, missing: 0, wrong: 0, unchecked: 0, named: 0, misnamed: 0 };
 // Each place is counted once; when two labels mark the same place, the worse outcome counts
 const OUTCOME_RANK = { residue: 0, ligand: 0, unchecked: 1, missing: 2, wrong: 3 } as const;
 type Outcome = keyof typeof OUTCOME_RANK;
@@ -767,7 +774,9 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
 
   const problems = new Set<string>();
   const places = new Map<string, Outcome>();
+  const marked = new Set<string>(); // "A|87": every place the answer points at, however it turned out
   const mark = (at: string, outcome: Outcome) => {
+    marked.add(at);
     const before = places.get(at);
     if (!before || OUTCOME_RANK[outcome] > OUTCOME_RANK[before]) places.set(at, outcome);
   };
@@ -838,7 +847,38 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
       }
     }
   }
-  const counts = { ...NO_MARKS };
+  // The amino acids the answer's own text names. A label often says only what a part is ("the basic
+  // patch"), while the text names the residues, so this is the only check on those. Conservative:
+  // the number must be in the file, and the named type must match neither the file's residue there
+  // nor the proteins' own residue at that position (so UniProt numbering in the text is not an
+  // error — the local correction handles the marks).
+  const atNumber = new Map<number, Map<string, string>>(); // 87 -> {A: HIS, B: THR}
+  for (const [at, type] of index.residues) {
+    const [chain, number] = at.split('|');
+    const resi = Number(number);
+    atNumber.set(resi, (atNumber.get(resi) ?? new Map<string, string>()).set(chain, PARENT[type] ?? type));
+  }
+  const sequences = (hintCache.get(key) ?? []).map(p => p.sequence);
+  // The answer's own words only: notes this app appends to the summary are not the AI's claims
+  const text = [analysis.summary, ...(analysis.tour ?? []).map(s => s.text), analysis.quiz?.question, analysis.quiz?.explanation]
+    .filter(Boolean).join(' ').split(NUMBERING_NOTE)[0];
+  let named = 0;
+  let misnamed = 0;
+  for (const [resi, types] of labelledTypes(text)) {
+    const here = atNumber.get(resi);
+    if (!here) continue; // Not a residue of this file: another structure in passing, or prose
+    // When the answer marks this number, the chains it marks say which residue it means
+    const chains = [...here.keys()].filter(c => marked.has(`${c}|${resi}`));
+    const inFile = new Set((chains.length ? chains : [...here.keys()]).map(c => here.get(c) as string));
+    const allowed = new Set([...inFile, ...sequences.map(s => THREE[s[resi - 1]]?.toUpperCase()).filter(Boolean) as string[]]);
+    if ([...types].some(t => allowed.has(t))) named++;
+    else {
+      misnamed++;
+      problems.add(`the answer's text says ${[...types].map(titleCase).join('/')}${resi}, but residue ${resi} is ${[...inFile].map(titleCase).join('/')} in this file`);
+    }
+  }
+
+  const counts = { ...NO_MARKS, named, misnamed };
   for (const outcome of places.values()) counts[outcome === 'residue' ? 'residues' : outcome === 'ligand' ? 'ligands' : outcome]++;
   return { problems: [...problems].slice(0, MAX_PROBLEMS), exists: true, ...counts };
 };
@@ -1148,7 +1188,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   if (!changed) return null;
   const notes = [...conversions].slice(0, 4);
   if (notes.length) {
-    corrected.summary = `${corrected.summary} (Highlights use this file's residue numbers: ${notes.join('; ')}.)`;
+    corrected.summary = `${corrected.summary} ${NUMBERING_NOTE}${notes.join('; ')}.)`;
   }
   return { analysis: corrected, conversions: notes, renumbered: renumbered.size, moved: moved.size };
 };

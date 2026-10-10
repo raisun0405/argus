@@ -540,7 +540,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
             ? 'Choose a real, existing PDB entry instead.'
             : identity
               ? `Either describe ${analysis.pdbId} as the protein it really is (see STRUCTURE FACTS), or choose the PDB entry that shows the protein you meant; use only residues and ligands that exist in the entry you answer with.`
-              : `Answer again for ${analysis.pdbId}, using only residues and ligands that exist in this file (see STRUCTURE FACTS).`);
+              : `Answer again for ${analysis.pdbId}, using only residues and ligands that exist in this file and naming each one by the amino acid it really is (see STRUCTURE FACTS).`);
         // The API takes up to 2000 characters
         const repairQuery = `${userQuery.slice(0, 900)}\n\n${note}`.slice(0, 2000);
         const first = {
@@ -548,7 +548,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           title: analysis.title,
           missing: inspection?.exists === false,
           holds: identity ? named.name : '',
-          problems: inspection ? inspection.missing + inspection.wrong : 0,
+          problems: inspection ? inspection.missing + inspection.wrong + inspection.misnamed : 0,
         };
         try {
           const repaired = await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait });
