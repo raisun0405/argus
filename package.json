@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/run.mjs unit",
+    "test:data": "node tests/run.mjs data",
+    "test:browser": "node tests/run.mjs browser",
+    "test:site": "node tests/run.mjs site"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

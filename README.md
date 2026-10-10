@@ -153,6 +153,10 @@ If something else already uses port 3000, run `npm run dev -- --port 3100`.
 
 Other scripts: `npm run typecheck` (TypeScript, strict) and `npm run build` (production build into `dist/`).
 
+Tests: `npm test` runs the logic offline in seconds; `npm run test:data` checks it on live public data,
+`npm run test:browser` drives the app in a headless Chrome (with `npm run dev` running) and
+`npm run test:site -- <url>` checks a deployment. See [`tests/README.md`](tests/README.md).
+
 ## Environment variables
 
 | Variable | Required | Description |
