@@ -733,23 +733,44 @@ const labelledTypes = (label: string) => {
   return byNumber;
 };
 
+/** An answer judged against the structure it names: what doesn't fit, and how many places it marks. */
+export interface AnswerInspection {
+  problems: string[]; // Worded for the model's retry; [] when everything fits
+  exists: boolean; // false: the ID isn't a valid or existing PDB entry
+  residues: number; // Residues it marks that the file has (of the type its label names, when it names one)
+  ligands: number; // Ligands, metals... it marks that the file has
+  missing: number; // Places it marks that the file doesn't have
+  wrong: number; // Places the file has, but not as labelled (another residue type, a residue for a ligand)
+  unchecked: number; // Ligand marks that couldn't be checked: the ligand list didn't load
+}
+
+const NO_MARKS = { residues: 0, ligands: 0, missing: 0, wrong: 0, unchecked: 0 };
+// Each place is counted once; when two labels mark the same place, the worse outcome counts
+const OUTCOME_RANK = { residue: 0, ligand: 0, unchecked: 1, missing: 2, wrong: 3 } as const;
+type Outcome = keyof typeof OUTCOME_RANK;
+
 /**
- * Problems with an answer, judged against the structure it names; [] when it is consistent,
- * null when it can't be checked (ESMFold prediction, co-folded complex, data unavailable or slow).
+ * An answer judged against the structure it names (problems [] when it is consistent); null when
+ * it can't be checked (ESMFold prediction, co-folded complex, data unavailable or slow).
  */
-export const checkAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<string[] | null> => {
+export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<AnswerInspection | null> => {
   const id = analysis.pdbId;
   if (isEsmFoldId(id) || isCofoldId(id)) return null;
   const key = factsKey(id);
-  if (!key) return [`"${id}" is not a valid PDB ID (PDB IDs are 4 characters, e.g. a digit and three letters or digits)`];
+  if (!key) return { problems: [`"${id}" is not a valid PDB ID (PDB IDs are 4 characters, e.g. a digit and three letters or digits)`], exists: false, ...NO_MARKS };
 
   const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), maxWaitMs));
   await Promise.race([loadStructureFacts(id).catch(() => null), timeout]);
   const index = indexCache.get(key);
   if (!index) return null;
-  if (index === 'unknown') return [`${id} is not an existing PDB entry`];
+  if (index === 'unknown') return { problems: [`${id} is not an existing PDB entry`], exists: false, ...NO_MARKS };
 
   const problems = new Set<string>();
+  const places = new Map<string, Outcome>();
+  const mark = (at: string, outcome: Outcome) => {
+    const before = places.get(at);
+    if (!before || OUTCOME_RANK[outcome] > OUTCOME_RANK[before]) places.set(at, outcome);
+  };
   const chainRanges = new Map<string, [number, number]>();
   for (const residueKey of index.residues.keys()) {
     const [chain, number] = residueKey.split('|');
@@ -775,20 +796,31 @@ export const checkAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): 
       const residue = index.residues.get(at);
       const ligand = index.ligands?.get(at);
       if (ligandLike) {
-        if (!residue && !ligand && index.ligands) problems.add(`${h.chain}:${resi}${label} is not a ligand, metal or residue in this file`);
-        // "Heme group" on a protein residue: the label names a ligand, so it must be that ligand
-        else if (residue && !ligand && namesLigand && index.ligands) problems.add(`${h.chain}:${resi} is a ${titleCase(residue)} residue, not the ligand named in${label}`);
+        if (!residue && !ligand && index.ligands) {
+          problems.add(`${h.chain}:${resi}${label} is not a ligand, metal or residue in this file`);
+          mark(at, 'missing');
+        } else if (residue && !ligand && namesLigand && index.ligands) {
+          // "Heme group" on a protein residue: the label names a ligand, so it must be that ligand
+          problems.add(`${h.chain}:${resi} is a ${titleCase(residue)} residue, not the ligand named in${label}`);
+          mark(at, 'wrong');
+        } else if (ligand) mark(at, 'ligand');
+        else if (residue && !(namesLigand && !index.ligands)) mark(at, 'residue');
+        else mark(at, 'unchecked');
         continue;
       }
       if (!residue) {
-        if (!ligand) problems.add(`${h.chain}:${resi}${label} is not in this file (${whereIs(h.chain)})`);
+        if (!ligand) {
+          problems.add(`${h.chain}:${resi}${label} is not in this file (${whereIs(h.chain)})`);
+          mark(at, 'missing');
+        } else mark(at, 'ligand');
         continue;
       }
       const expected = named.get(resi);
       const actual = PARENT[residue] ?? residue;
       if (expected && expected.size > 0 && !expected.has(actual)) {
         problems.add(`${h.chain}:${resi} is ${titleCase(residue)} in this file, not ${[...expected].map(titleCase).join('/')} as labelled${label}`);
-      }
+        mark(at, 'wrong');
+      } else mark(at, 'residue');
     }
   };
 
@@ -798,11 +830,25 @@ export const checkAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): 
   for (const m of analysis.measurements ?? []) {
     for (const end of [m.start, m.end]) {
       const at = `${end.chain}|${end.resi}`;
-      if (!index.residues.has(at) && !index.ligands?.has(at)) problems.add(`measurement end ${end.chain}:${end.resi} is not in this file (${whereIs(end.chain)})`);
+      if (index.residues.has(at)) mark(at, 'residue');
+      else if (index.ligands?.has(at)) mark(at, 'ligand');
+      else {
+        problems.add(`measurement end ${end.chain}:${end.resi} is not in this file (${whereIs(end.chain)})`);
+        mark(at, 'missing');
+      }
     }
   }
-  return [...problems].slice(0, MAX_PROBLEMS);
+  const counts = { ...NO_MARKS };
+  for (const outcome of places.values()) counts[outcome === 'residue' ? 'residues' : outcome === 'ligand' ? 'ligands' : outcome]++;
+  return { problems: [...problems].slice(0, MAX_PROBLEMS), exists: true, ...counts };
 };
+
+/**
+ * Problems with an answer, judged against the structure it names; [] when it is consistent,
+ * null when it can't be checked (ESMFold prediction, co-folded complex, data unavailable or slow).
+ */
+export const checkAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<string[] | null> =>
+  (await inspectAnswer(analysis, maxWaitMs))?.problems ?? null;
 
 // --- IDENTITY ---
 // Whether the protein an answer names is the one in the entry it picked (services/identityCheck.ts):
@@ -866,27 +912,42 @@ export const loadIdentity = (structureId: string): Promise<EntryIdentity | null>
 export const readableTitle = (title: string) =>
   title === title.toUpperCase() ? title.charAt(0) + title.slice(1).toLowerCase() : title;
 
+/** Whether an answer names the protein its entry holds, and what that entry is. */
+export interface IdentityInspection {
+  status: 'match' | 'mismatch' | 'unjudged' | 'unavailable'; // unjudged: the title names no protein; unavailable: no records to judge by
+  problem: string | null; // Worded for the model's retry, when it's a mismatch
+  name: string; // The entry's title, or the protein an AlphaFold model is of ('' when the records didn't load)
+  proteins: string[]; // UniProt names of an entry's proteins
+}
+
 /**
- * A problem when the answer's title names a different protein from the entry it picked ("the answer
- * calls 2JDF "Human Insulin Hexamer", but 2JDF is "Human gamma-B crystallin" (Gamma-crystallin B)");
- * null when it matches, names nothing, or can't be checked (predictions made here, records missing).
+ * The answer's title against the entry it picked. A mismatch comes with a problem for the retry ("the
+ * answer calls 2JDF "Human Insulin Hexamer", but 2JDF is "Human gamma-B crystallin" (Gamma-crystallin
+ * B)"); predictions made here and missing records are never judged.
  */
-export const checkIdentity = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<string | null> => {
+export const inspectIdentity = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<IdentityInspection> => {
   const id = analysis.pdbId;
-  if (!id || isEsmFoldId(id) || isCofoldId(id) || !factsKey(id) || !analysis.title) return null;
+  const unknown = (status: IdentityInspection['status']): IdentityInspection => ({ status, problem: null, name: '', proteins: [] });
+  if (!id || isEsmFoldId(id) || isCofoldId(id) || !factsKey(id)) return unknown('unavailable');
+  if (!analysis.title) return unknown('unjudged');
   const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), maxWaitMs));
   const identity = await Promise.race([loadIdentity(id).catch(() => null), timeout]);
-  if (!identity?.complete) return null;
+  if (!identity?.complete) return unknown('unavailable');
+  const isModel = Boolean(parseAlphaFoldId(id));
+  const known = { name: isModel ? identity.title : readableTitle(identity.title), proteins: identity.proteins };
   const verdict = identityVerdict(analysis.title, identity.names);
-  if (!verdict.judged || verdict.match) return null;
+  if (!verdict.judged) return { status: 'unjudged', problem: null, ...known };
   // Two signals: a title worded unusually is let off when the answer's first sentence names the entry's protein
   const opening = identityVerdict(firstSentence(analysis.summary ?? ''), identity.names);
-  if (opening.judged && opening.match) return null;
-  const isModel = Boolean(parseAlphaFoldId(id));
+  if (verdict.match || (opening.judged && opening.match)) return { status: 'match', problem: null, ...known };
   const what = isModel ? `the AlphaFold model of ${identity.title}` : `"${readableTitle(identity.title)}"`;
   const proteins = !isModel && identity.proteins.length ? ` (${identity.proteins.slice(0, 3).join(', ')})` : '';
-  return `the answer calls ${id} "${analysis.title}", but ${id} is ${what}${proteins}`;
+  return { status: 'mismatch', problem: `the answer calls ${id} "${analysis.title}", but ${id} is ${what}${proteins}`, ...known };
 };
+
+/** The retry's problem when the answer's title names a different protein from its entry; null otherwise. */
+export const checkIdentity = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<string | null> =>
+  (await inspectIdentity(analysis, maxWaitMs)).problem;
 
 /**
  * An answer whose protein still doesn't match its entry (after the retry), made honest: the heading
@@ -949,6 +1010,8 @@ const namedLigandIds = (label: string) => {
 export interface CorrectedAnswer {
   analysis: ProteinAnalysis;
   conversions: string[]; // "UniProt Lys745 = A:Lys721", for the note added to the summary
+  renumbered: number; // Residue numbers read as UniProt numbers and converted (named or not, measurement ends too)
+  moved: number; // Ligand marks moved onto the ligand the file holds
 }
 
 /** The answer with UniProt-numbered residues and misplaced ligands fixed; null when nothing could be fixed. */
@@ -962,6 +1025,9 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   const proteins = hintCache.get(key) ?? [];
 
   let changed = false;
+  // Places changed, counted once however many highlights, tour steps or measurements mark them
+  const renumbered = new Set<string>();
+  const moved = new Set<string>();
   const conversions = new Set<string>();
   const ligandIds = index.ligands ? [...new Set(index.ligands.values())] : [];
   const ligandInstances = (ids: Set<string>) =>
@@ -1026,6 +1092,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         if (targets.length === 0) { keep(h.chain, resi); continue; }
         (sameChain.length > 0 ? sameChain : targets).forEach(t => keep(t.chain, t.resi));
         changed = true;
+        moved.add(at);
         continue;
       }
 
@@ -1047,6 +1114,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         keep(target, located.resi);
         if (isNamed) conversions.add(`UniProt ${titleCase(uniprotType)}${resi} = ${target}:${titleCase(uniprotType)}${located.resi}`);
         converted = changed = true;
+        renumbered.add(at);
         break;
       }
       if (!converted) keep(h.chain, resi);
@@ -1061,6 +1129,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
       const located = protein.locate(end.resi);
       if (located && index.residues.has(`${end.chain}|${located.resi}`)) {
         changed = true;
+        renumbered.add(at);
         return { ...end, resi: located.resi };
       }
     }
@@ -1081,5 +1150,5 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   if (notes.length) {
     corrected.summary = `${corrected.summary} (Highlights use this file's residue numbers: ${notes.join('; ')}.)`;
   }
-  return { analysis: corrected, conversions: notes };
+  return { analysis: corrected, conversions: notes, renumbered: renumbered.size, moved: moved.size };
 };

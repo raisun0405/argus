@@ -17,13 +17,15 @@ import Composer from './chat/Composer';
 import EmptyState from './chat/EmptyState';
 import MarkedParts from './chat/MarkedParts';
 import ActionReceipt from './chat/ActionReceipt';
+import AnswerChecks from './chat/AnswerChecks';
 import TweakPanel from './chat/TweakPanel';
 import { actionDone, actionFailed, actionFromId, actionPlanned, parseChatCommand, type ActionResult, type ChatAction } from '../services/chatActions';
 import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
 import { ESMFOLD_MAX_LENGTH, SequenceInput, foldSequence, parseSequenceInput } from '../services/esmfoldService';
-import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, getStructureFacts, loadStructureFacts } from '../services/groundingService';
+import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, getStructureFacts, inspectAnswer, inspectIdentity, loadStructureFacts } from '../services/groundingService';
+import { collectChecks, type CheckTrail } from '../services/answerChecks';
 import { complexInterface, findPartners } from '../services/partnerService';
 import { cofoldAnalysis, cofoldAvailable, compareAnalysis, compareCofolds, defaultCofoldRequest, isCofoldId, parseCofoldCommand, parseCompareCommand, runCofold } from '../services/cofoldService';
 import InvestigationCard from './chat/InvestigationCard';
@@ -508,21 +510,26 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       // 1b. Check the answer against the structure it names (residues, ligands, the PDB ID itself).
       // Exact local fixes first (UniProt numbering, misplaced ligands: no extra AI call); whatever
       // still doesn't fit goes back to the model once, with that structure's facts and the problems.
+      // The trail keeps each step for the line under the answer (services/answerChecks.ts).
       setLoadingPhase("Checking residues against the structure...");
-      let problems = await checkAnswer(analysis);
-      if (problems && problems.length > 0) {
+      const trail: CheckTrail = {};
+      let inspection = await inspectAnswer(analysis);
+      if (inspection && inspection.problems.length > 0) {
         const corrected = await correctAnswer(analysis);
         if (corrected) {
-          const remaining = await checkAnswer(corrected.analysis);
-          if (remaining !== null && remaining.length < problems.length) {
+          const remaining = await inspectAnswer(corrected.analysis);
+          if (remaining !== null && remaining.problems.length < inspection.problems.length) {
             analysis = corrected.analysis;
-            problems = remaining;
+            inspection = remaining;
+            trail.local = { renumbered: corrected.renumbered, moved: corrected.moved, examples: corrected.conversions };
           }
         }
       }
+      const problems = inspection?.problems ?? null;
       // ...and the protein it names against the entry's own records (title, molecules, UniProt names):
       // a different protein altogether goes back to the model too
-      const identity = await checkIdentity(analysis);
+      const named = await inspectIdentity(analysis);
+      const identity = named.problem;
       if ((problems && problems.length > 0) || identity) {
         setLoadingPhase(identity ? 'Checking which protein this is...' : 'Correcting residue numbers...');
         const missingEntry = (problems ?? []).some(p => /not an existing PDB entry|not a valid PDB ID/.test(p));
@@ -536,20 +543,33 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
               : `Answer again for ${analysis.pdbId}, using only residues and ligands that exist in this file (see STRUCTURE FACTS).`);
         // The API takes up to 2000 characters
         const repairQuery = `${userQuery.slice(0, 900)}\n\n${note}`.slice(0, 2000);
+        const first = {
+          entry: analysis.pdbId,
+          title: analysis.title,
+          missing: inspection?.exists === false,
+          holds: identity ? named.name : '',
+          problems: inspection ? inspection.missing + inspection.wrong : 0,
+        };
         try {
           const repaired = await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait });
           const remaining = await checkAnswer(repaired);
           const remainingIdentity = await checkIdentity(repaired);
           // Keep the correction unless it is no better than the first answer
           const after = (remaining?.length ?? 0) + (remainingIdentity ? 1 : 0);
-          if ((remaining === null && !remainingIdentity) || after < issues.length) analysis = repaired;
+          const kept = (remaining === null && !remainingIdentity) || after < issues.length;
+          if (kept) analysis = repaired;
+          trail.retry = { ...first, outcome: kept ? 'kept' : 'first' };
         } catch (e) {
           // The first answer stands
+          trail.retry = { ...first, outcome: 'failed' };
         }
       }
       // A protein that still doesn't match its entry: the heading takes the entry's title, and the answer says so
-      analysis = await correctIdentity(analysis);
+      const shown = await correctIdentity(analysis);
+      trail.corrected = shown !== analysis;
+      analysis = shown;
       rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis);
+      const checks = await collectChecks(analysis, trail);
 
       // 2. Draft Response & Pre-load Audio (skipped while narration is disabled: nothing to load)
       if (SPEECH_ENABLED && analysis.tour && analysis.tour.length > 0) {
@@ -580,6 +600,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           role: 'assistant',
           content: analysis.summary,
           data: analysis,
+          ...(checks ? { checks } : {}),
           ...(planned.length ? { actionResults: planned.map(actionPlanned) } : {}),
         }
       ]);
@@ -1072,6 +1093,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           onFocus={highlights => onFocusHighlights?.(highlights)}
         />
       )}
+
+      {/* What the app checked in the answer before showing it, and what it fixed first */}
+      {msg.checks && <AnswerChecks checks={msg.checks} />}
 
       {msg.data?.quiz && (
         <QuizCard
