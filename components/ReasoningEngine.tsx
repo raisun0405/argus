@@ -23,7 +23,7 @@ import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
 import { ESMFOLD_MAX_LENGTH, SequenceInput, foldSequence, parseSequenceInput } from '../services/esmfoldService';
-import { checkAnswer, correctAnswer, getStructureFacts, loadStructureFacts } from '../services/groundingService';
+import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, getStructureFacts, loadStructureFacts } from '../services/groundingService';
 import { complexInterface, findPartners } from '../services/partnerService';
 import { cofoldAnalysis, cofoldAvailable, compareAnalysis, compareCofolds, defaultCofoldRequest, isCofoldId, parseCofoldCommand, parseCompareCommand, runCofold } from '../services/cofoldService';
 import InvestigationCard from './chat/InvestigationCard';
@@ -520,25 +520,35 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           }
         }
       }
-      if (problems && problems.length > 0) {
-        setLoadingPhase("Correcting residue numbers...");
-        const missingEntry = problems.some(p => /not an existing PDB entry|not a valid PDB ID/.test(p));
+      // ...and the protein it names against the entry's own records (title, molecules, UniProt names):
+      // a different protein altogether goes back to the model too
+      const identity = await checkIdentity(analysis);
+      if ((problems && problems.length > 0) || identity) {
+        setLoadingPhase(identity ? 'Checking which protein this is...' : 'Correcting residue numbers...');
+        const missingEntry = (problems ?? []).some(p => /not an existing PDB entry|not a valid PDB ID/.test(p));
+        const issues = [...(identity ? [identity] : []), ...(problems ?? [])];
         const repairFacts = missingEntry ? null : await getStructureFacts(analysis.pdbId, userQuery, 6000);
-        const note = `[Correction needed] Your previous answer used ${analysis.pdbId}, but these parts do not match that file: ${problems.join('; ')}. ` +
+        const note = `[Correction needed] Your previous answer used ${analysis.pdbId}, but these parts do not match that file: ${issues.join('; ')}. ` +
           (missingEntry
             ? 'Choose a real, existing PDB entry instead.'
-            : `Answer again for ${analysis.pdbId}, using only residues and ligands that exist in this file (see STRUCTURE FACTS).`);
+            : identity
+              ? `Either describe ${analysis.pdbId} as the protein it really is (see STRUCTURE FACTS), or choose the PDB entry that shows the protein you meant; use only residues and ligands that exist in the entry you answer with.`
+              : `Answer again for ${analysis.pdbId}, using only residues and ligands that exist in this file (see STRUCTURE FACTS).`);
         // The API takes up to 2000 characters
         const repairQuery = `${userQuery.slice(0, 900)}\n\n${note}`.slice(0, 2000);
         try {
           const repaired = await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait });
           const remaining = await checkAnswer(repaired);
+          const remainingIdentity = await checkIdentity(repaired);
           // Keep the correction unless it is no better than the first answer
-          if (remaining === null || remaining.length < problems.length) analysis = repaired;
+          const after = (remaining?.length ?? 0) + (remainingIdentity ? 1 : 0);
+          if ((remaining === null && !remainingIdentity) || after < issues.length) analysis = repaired;
         } catch (e) {
           // The first answer stands
         }
       }
+      // A protein that still doesn't match its entry: the heading takes the entry's title, and the answer says so
+      analysis = await correctIdentity(analysis);
       rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis);
 
       // 2. Draft Response & Pre-load Audio (skipped while narration is disabled: nothing to load)

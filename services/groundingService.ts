@@ -12,6 +12,7 @@ import { overlayFactsLine } from './overlayService';
 import { paeFactsLine } from './paeService';
 import { complement, experimentalFactsLine, percent, rangesOf, rangesText } from './coverageService';
 import { qualityFactsLine } from './qualityService';
+import { firstSentence, identityVerdict } from './identityCheck';
 import { fetchPdbFile } from './structureFiles';
 
 // --- STRUCTURE FACTS (grounding for /api/analyze) ---
@@ -27,7 +28,7 @@ import { fetchPdbFile } from './structureFiles';
 const PDBE_API = 'https://www.ebi.ac.uk/pdbe/api';
 const UNIPROT_API = 'https://rest.uniprot.org/uniprotkb';
 const UNIPROT_FIELDS = [
-  'id', 'protein_name', 'sequence',
+  'id', 'protein_name', 'gene_names', 'sequence',
   'ft_chain', 'ft_peptide', 'ft_act_site', 'ft_binding', 'ft_site', 'ft_disulfid',
   'ft_mod_res', 'ft_domain', 'ft_zn_fing', 'ft_dna_bind', 'ft_motif', 'ft_region',
 ].join(',');
@@ -63,9 +64,33 @@ interface Feature {
 interface UniProtEntry {
   identifier: string;
   name: string;
+  names: string[]; // Every name UniProt gives it (services/identityCheck.ts)
   sequence: string;
   features: Feature[];
 }
+
+/** Recommended, alternative, short and submitted names, those of a polyprotein's parts, and the gene names. */
+const uniprotNames = (json: any): string[] => {
+  const names: string[] = [];
+  const take = (n: any) => {
+    if (typeof n?.fullName?.value === 'string') names.push(n.fullName.value);
+    for (const s of n?.shortNames ?? []) if (typeof s?.value === 'string') names.push(s.value);
+  };
+  const visit = (d: any) => {
+    if (!d) return;
+    take(d.recommendedName);
+    (d.alternativeNames ?? []).forEach(take);
+    (d.submissionNames ?? []).forEach(take);
+    (d.contains ?? []).forEach(visit);
+    (d.includes ?? []).forEach(visit);
+  };
+  visit(json?.proteinDescription);
+  for (const g of json?.genes ?? []) {
+    if (typeof g?.geneName?.value === 'string') names.push(g.geneName.value);
+    for (const s of g?.synonyms ?? []) if (typeof s?.value === 'string') names.push(s.value);
+  }
+  return names;
+};
 
 const uniprotCache = new Map<string, Promise<UniProtEntry | null>>();
 
@@ -78,6 +103,7 @@ const fetchUniProtEntry = (accession: string): Promise<UniProtEntry | null> =>
     return {
       identifier: json?.uniProtkbId ?? accession,
       name: names?.recommendedName?.fullName?.value ?? names?.submissionNames?.[0]?.fullName?.value ?? accession,
+      names: uniprotNames(json),
       sequence: json?.sequence?.value ?? '',
       features: (json?.features ?? [])
         .map((f: any) => ({
@@ -776,6 +802,105 @@ export const checkAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000): 
     }
   }
   return [...problems].slice(0, MAX_PROBLEMS);
+};
+
+// --- IDENTITY ---
+// Whether the protein an answer names is the one in the entry it picked (services/identityCheck.ts):
+// the answer's title against the entry's own records. Judged only when every record loaded, so a
+// UniProt outage never turns a right answer into a "mismatch".
+
+export interface EntryIdentity {
+  title: string; // The entry's title (PDB) or the protein's UniProt name (AlphaFold model)
+  proteins: string[]; // UniProt names of its proteins
+  names: string[]; // Every record the answer's title is matched against
+  complete: boolean; // All of them loaded
+}
+
+const RCSB_ENTRY = 'https://data.rcsb.org/rest/v1/core/entry';
+const titleCache = new Map<string, Promise<string>>();
+const fetchEntryTitle = (id: string): Promise<string> =>
+  memoize(titleCache, id, async () => {
+    const response = await fetchOrNull(`${RCSB_ENTRY}/${id}`);
+    if (!response) return '';
+    const json = await response.json();
+    return typeof json?.struct?.title === 'string' ? json.struct.title : '';
+  });
+
+const identityCache = new Map<string, Promise<EntryIdentity | null>>();
+
+/** A PDB entry's or AlphaFold model's identity records; null when there is no such structure. */
+export const loadIdentity = (structureId: string): Promise<EntryIdentity | null> => {
+  const key = factsKey(structureId);
+  if (!key) return Promise.resolve(null);
+  const accession = parseAlphaFoldId(structureId.trim());
+  const pending = memoize(identityCache, key, async (): Promise<EntryIdentity | null> => {
+    const short = (identifier: string) => identifier.split('_')[0];
+    if (accession) {
+      const entry = await fetchUniProtEntry(accession).catch(() => null);
+      if (!entry) return null;
+      return { title: entry.name, proteins: [entry.name], names: [entry.name, ...entry.names, short(entry.identifier), accession], complete: true };
+    }
+    let complete = true;
+    const [title, molecules, sifts] = await Promise.all([
+      fetchEntryTitle(key).catch(() => { complete = false; return ''; }),
+      fetchMolecules(key).catch(() => { complete = false; return [] as Molecule[]; }),
+      fetchSiftsMapping(key).catch(() => { complete = false; return []; }),
+    ]);
+    if (!title && molecules.length === 0) return complete ? null : { title: '', proteins: [], names: [], complete: false };
+    const entries = await Promise.all(sifts.map(a => fetchUniProtEntry(a.accession).catch(() => { complete = false; return null; })));
+    const proteins = [...new Set(entries.flatMap(e => (e ? [e.name] : [])))];
+    const names = [
+      title,
+      ...molecules.map(m => m.name),
+      ...sifts.map(a => short(a.identifier)),
+      ...entries.flatMap(e => (e ? [e.name, ...e.names, short(e.identifier)] : [])),
+    ].filter(Boolean);
+    return { title, proteins, names, complete: complete && Boolean(title) };
+  });
+  // Built while a source was failing: never judged, and fetched again next time
+  pending.then(identity => { if (identity && !identity.complete && identityCache.get(key) === pending) identityCache.delete(key); }, () => {});
+  return pending;
+};
+
+/** An RCSB title as a heading: as written, unless it is all capitals. */
+export const readableTitle = (title: string) =>
+  title === title.toUpperCase() ? title.charAt(0) + title.slice(1).toLowerCase() : title;
+
+/**
+ * A problem when the answer's title names a different protein from the entry it picked ("the answer
+ * calls 2JDF "Human Insulin Hexamer", but 2JDF is "Human gamma-B crystallin" (Gamma-crystallin B)");
+ * null when it matches, names nothing, or can't be checked (predictions made here, records missing).
+ */
+export const checkIdentity = async (analysis: ProteinAnalysis, maxWaitMs = 6000): Promise<string | null> => {
+  const id = analysis.pdbId;
+  if (!id || isEsmFoldId(id) || isCofoldId(id) || !factsKey(id) || !analysis.title) return null;
+  const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), maxWaitMs));
+  const identity = await Promise.race([loadIdentity(id).catch(() => null), timeout]);
+  if (!identity?.complete) return null;
+  const verdict = identityVerdict(analysis.title, identity.names);
+  if (!verdict.judged || verdict.match) return null;
+  // Two signals: a title worded unusually is let off when the answer's first sentence names the entry's protein
+  const opening = identityVerdict(firstSentence(analysis.summary ?? ''), identity.names);
+  if (opening.judged && opening.match) return null;
+  const isModel = Boolean(parseAlphaFoldId(id));
+  const what = isModel ? `the AlphaFold model of ${identity.title}` : `"${readableTitle(identity.title)}"`;
+  const proteins = !isModel && identity.proteins.length ? ` (${identity.proteins.slice(0, 3).join(', ')})` : '';
+  return `the answer calls ${id} "${analysis.title}", but ${id} is ${what}${proteins}`;
+};
+
+/**
+ * An answer whose protein still doesn't match its entry (after the retry), made honest: the heading
+ * becomes the entry's own title and the answer opens by saying it doesn't describe that entry. Any
+ * other answer comes back as it was.
+ */
+export const correctIdentity = async (analysis: ProteinAnalysis): Promise<ProteinAnalysis> => {
+  if (!(await checkIdentity(analysis))) return analysis;
+  const record = await loadIdentity(analysis.pdbId).catch(() => null);
+  if (!record?.title) return analysis;
+  const isModel = Boolean(parseAlphaFoldId(analysis.pdbId));
+  const title = isModel ? `${record.title} (AlphaFold model)` : readableTitle(record.title);
+  const what = isModel ? `the AlphaFold model of ${record.title}` : `"${title}"`;
+  return { ...analysis, title, summary: `Correction: ${analysis.pdbId} is ${what}, which isn't what this answer describes. ${analysis.summary}` };
 };
 
 // --- LOCAL CORRECTION ---
