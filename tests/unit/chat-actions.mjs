@@ -190,6 +190,20 @@ for (const text of [
   'a detour through the literature',
 ]) check(`"${text}" does not`, A.asksForTour(text) === false);
 
+console.log('== While a tour plays, short words steer it (no AI call)');
+const CONTROLS = [
+  ['pause', 'pause'], ['Pause the tour', 'pause'], ['wait', 'pause'], ['hold on', 'pause'],
+  ['resume', 'resume'], ['continue', 'resume'], ['go on please', 'resume'],
+  ['stop', 'stop'], ['Stop it!', 'stop'], ['stop the tour', 'stop'], ['enough', 'stop'],
+  ['next', 'next'], ['next step please', 'next'], ['skip', 'next'],
+  ['back', 'previous'], ['go back', 'previous'], ['previous step', 'previous'],
+  ['again', 'repeat'], ['repeat that', 'repeat'],
+  ['start over', 'restart'], ['replay', 'restart'], ['restart the tour', 'restart'],
+];
+for (const [text, want] of CONTROLS) check(`"${text}" -> ${want}`, A.parseTourControl(text) === want, String(A.parseTourControl(text)));
+for (const text of ['pause the music and explain the active site', 'what happens next?', 'go back to hemoglobin', 'next, explain the heme', 'stop the bleeding', ''])
+  check(`"${text}" is not a tour control`, A.parseTourControl(text) === null, String(A.parseTourControl(text)));
+
 console.log('== Receipts');
 check('describe a shape', A.describeAction({ kind: 'shape', shape: 'surface' }) === 'Shape: surface');
 check('describe a colouring', A.describeAction({ kind: 'colour', colouring: 'residue' }) === 'Colour: residue type');

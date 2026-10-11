@@ -134,5 +134,15 @@ const bare = Q.withoutQuiz(full);
 check('withoutQuiz drops the quiz and keeps the rest', !('quiz' in bare) && bare.pdbId === '1TRZ' && 'quiz' in full);
 check('...and returns an answer without one as it is', Q.withoutQuiz(bare) === bare);
 
+console.log('\n[9] asking for the next question');
+for (const text of ['another question', 'Next question please!', 'one more question', 'can I have another question?', 'a harder question', 'more questions', 'ask me another question', 'give me another question', 'OK, another quiz'])
+  check(`"${text}" asks for a quiz`, Q.asksForQuiz(text) === true);
+for (const text of ['I have another question: how does insulin bind its receptor?', 'show me another protein', 'next', 'what is the next step in the mechanism?'])
+  check(`"${text}" does not`, Q.asksForQuiz(text) === false);
+for (const text of ['another one', 'Next', 'again', 'give me another one', 'one more', 'next one please', 'a harder one'])
+  check(`right after a quiz, "${text}" asks for the next question`, Q.asksForAnotherQuiz(text) === true);
+for (const text of ['show me another protein', 'another protein please', 'next time', 'explain it again with the heme'])
+  check(`"${text}" never does`, Q.asksForAnotherQuiz(text) === false);
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);
 process.exit(failures ? 1 : 0);

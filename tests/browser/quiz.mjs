@@ -182,7 +182,16 @@ try {
   await ask('What does HIV protease cut?');
   check('two answers later, a quiz comes again', (await ev(quizzes)) === shown + 1 && bodies.at(-1)?.quiz === undefined, `${await ev(quizzes)} quiz cards`);
   await ask('Quiz me on the bridges between insulin chains');
-  check('a quiz asked for comes even right after another', (await ev(quizzes)) === shown + 2 && bodies.at(-1)?.quiz === undefined, `${await ev(quizzes)} quiz cards`);
+  check('a quiz asked for comes even right after another', (await ev(quizzes)) === shown + 2 && bodies.at(-1)?.quiz === true, `${await ev(quizzes)} quiz cards`);
+
+  console.log('\n[7] asking for the next question');
+  await ask('another question');
+  check('"another question" right after a quiz brings one', (await ev(quizzes)) === shown + 3, `${await ev(quizzes)} quiz cards`);
+  check('...the AI is asked for a quiz, and told the last question so as not to ask it again', bodies.at(-1)?.quiz === true && (bodies.at(-1)?.lastQuiz ?? '').startsWith('Which disulfide bonds link') && bodies.at(-1)?.query === 'another question', JSON.stringify({ quiz: bodies.at(-1)?.quiz, lastQuiz: bodies.at(-1)?.lastQuiz, query: bodies.at(-1)?.query }));
+  await ask('next one');
+  check('"next one" right after a quiz brings one too', (await ev(quizzes)) === shown + 4, `${await ev(quizzes)} quiz cards`);
+  await ask('show me another protein');
+  check('"show me another protein" is no quiz request: its quiz waits', (await ev(quizzes)) === shown + 4 && bodies.at(-1)?.quiz === false && !('lastQuiz' in (bodies.at(-1) ?? {})), `${await ev(quizzes)} quiz cards`);
   check('no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
 } finally { ws.close(); chrome.kill(); }
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);

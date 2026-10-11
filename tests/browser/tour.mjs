@@ -4,6 +4,8 @@
 //  2. an answer to any other question keeps its tour ready to play from the answer, its quiz shown
 //  3. a tour of named parts goes to the AI (whose tour keeps to them), never to the plain command
 //  4. the plain "tour" still plays the tour on screen without asking the AI
+//  5. while a tour plays, "pause", "next", "go back", "resume", "stop" steer it without the AI, and the
+//     answer's Back and Next buttons move between steps
 import { BASE } from '../lib/env.mjs';
 import { launch, sleep } from '../lib/browser.mjs';
 let failures = 0;
@@ -121,6 +123,37 @@ try {
   check("...the latest answer's", (await b.ev(tourState(tagged('chain')))) === 'playing', await b.ev(tourState(tagged('chain'))));
   check('...without asking the AI', b.calls.length === plainCalls, b.calls.slice(plainCalls));
   await b.click(headerButton('Stop the tour'));
+  await sleep(300);
+
+  console.log('[5. steering a playing tour: words in the chat, Back and Next in the answer]');
+  const receipts = `document.querySelectorAll('[data-action-receipt]').length`;
+  const lastReceipt = `([...document.querySelectorAll('[data-action-receipt] li')].at(-1)?.dataset.actionState ?? '') + ':' + ([...document.querySelectorAll('[data-action-receipt] li')].at(-1)?.textContent ?? '')`;
+  const steer = async (text) => { const before = await b.ev(receipts); await b.say(text); await b.waitFor(`${receipts} > ${before}`, 8000); await sleep(400); return b.ev(lastReceipt); };
+  const stepButton = (label) => `[...((${j})?.querySelectorAll('button[aria-label="${label}"]') ?? [])][0]`;
+  await b.click(rowButton(j, 'Play the tour'));
+  await b.waitFor(`${tourState(j)} === 'playing' && /Step 1 of 2/.test(${rowText(j)})`, 8000);
+  const steerCalls = b.calls.length;
+  let r = await steer('pause');
+  check('"pause" pauses it', (await b.ev(tourState(j))) === 'paused' && r === 'done:Tour paused', `${r} / ${await b.ev(tourState(j))}`);
+  r = await steer('next');
+  check('"next" moves to step 2, still paused', (await b.waitFor(`/Paused · Step 2 of 2/.test(${rowText(j)})`, 3000)) >= 0 && r === 'done:Step 2 of 2', `${r} / ${await b.ev(rowText(j))}`);
+  r = await steer('go back');
+  check('"go back" returns to step 1', (await b.waitFor(`/Paused · Step 1 of 2/.test(${rowText(j)})`, 3000)) >= 0 && r === 'done:Step 1 of 2', `${r} / ${await b.ev(rowText(j))}`);
+  r = await steer('resume');
+  check('"resume" plays on', (await b.ev(tourState(j))) === 'playing' && r === 'done:Tour resumed', `${r} / ${await b.ev(tourState(j))}`);
+  await steer('wait'); // Paused again, so the steps stay put while the buttons are tried
+  check('Previous step is off on the first step', await b.ev(`${stepButton('Previous step')}?.disabled === true`));
+  await b.click(stepButton('Next step'));
+  check('Next step in the answer moves to step 2', (await b.waitFor(`/Step 2 of 2/.test(${rowText(j)})`, 3000)) >= 0, await b.ev(rowText(j)));
+  check('...where it is the end of the tour', !!(await b.ev(`!!${stepButton('End the tour')}`)));
+  await b.click(stepButton('Previous step'));
+  check('Previous step goes back to step 1', (await b.waitFor(`/Step 1 of 2/.test(${rowText(j)})`, 3000)) >= 0, await b.ev(rowText(j)));
+  r = await steer('stop');
+  check('"stop" stops it', (await b.ev(tourState(j))) === 'ready' && r === 'done:Tour stopped' && !(await b.ev(`!!${headerButton('Stop the tour')}`)), `${r} / ${await b.ev(tourState(j))}`);
+  check('none of these went to the AI', b.calls.length === steerCalls, b.calls.slice(steerCalls));
+  await b.say('next'); // No tour playing: a question as usual
+  for (let i = 0; i < 40 && b.calls.length === steerCalls; i++) await sleep(250);
+  check('with no tour playing, "next" is a question for the AI', b.calls.length === steerCalls + 1, b.calls.slice(steerCalls));
 
   check('no page errors', b.problems.length === 0, b.problems);
 } finally { b.close(); }

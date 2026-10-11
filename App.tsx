@@ -301,6 +301,11 @@ const App: React.FC = () => {
             onFocusHighlights={(highlights) => {
               if (commandsRef.current?.focusHighlights(highlights) && narrow) setPhoneTab('structure');
             }}
+            getSelection={() => {
+              const commands = commandsRef.current;
+              const text = commands?.selectionText();
+              return commands && text ? { structureId: commands.structureId, text } : null;
+            }}
             headerStart={paneSwitch}
             onTourState={setTour}
             tourControlsRef={tourControlsRef}

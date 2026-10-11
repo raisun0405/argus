@@ -66,6 +66,15 @@ check('modified residue (MSE) stays in the chain as M', small.chains[0].sequence
   check('toAtomSpec matches insertion codes exactly', spec.predicate({ chain: 'A', resi: 184, icode: 'A' }) && !spec.predicate({ chain: 'A', resi: 184, icode: ' ' }));
   const many = m.selectChain(hsg, 'A');
   check('describeSelection is capped', m.describeSelection({ keys: new Set([...many.keys].filter((_, i) => i % 2 === 0)), focus: null }, hsg, 40).length <= 40);
+
+  // What the chat sends the AI with a question about the selection
+  const pick = (...keys) => ({ keys: new Set(keys), focus: keys[0] ?? null });
+  check('selectionForAi: one residue by name', m.selectionForAi(pick('A|25|'), hsg) === 'A:Asp25', m.selectionForAi(pick('A|25|'), hsg));
+  check('...a few, by chain and number, with ligands by code', m.selectionForAi(pick('B|25|', 'A|50|', 'A|25|', hsg.ligands.find(l => l.resn === 'MK1').key), hsg) === 'A:Asp25, A:Ile50, B:Asp25, B:MK1 902',
+    m.selectionForAi(pick('B|25|', 'A|50|', 'A|25|', hsg.ligands.find(l => l.resn === 'MK1').key), hsg));
+  check('...insertion codes kept', m.selectionForAi(pick('A|184|A'), ptb) === 'A:Gly184A', m.selectionForAi(pick('A|184|A'), ptb));
+  check('...many as ranges with a count', m.selectionForAi(m.selectChain(hsg, 'B'), hsg) === 'B:1-99 (99 residues)', m.selectionForAi(m.selectChain(hsg, 'B'), hsg));
+  check('...nothing selected: null', m.selectionForAi(m.emptySelection(), hsg) === null && m.selectionForAi(pick('Z|1|'), hsg) === null);
 }
 
 // --- Neighbours, centres, and a clean model shape ---

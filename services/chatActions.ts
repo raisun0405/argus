@@ -532,6 +532,31 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
   return actions;
 };
 
+// --- WHILE A TOUR PLAYS ---
+// "Pause", "next", "stop": while a tour plays, a short word like these steers it, with no AI call (the
+// AI's new answer would end the tour). Anything longer is a question as usual.
+
+export type TourControl = 'pause' | 'resume' | 'stop' | 'next' | 'previous' | 'repeat' | 'restart';
+
+const TOUR_CONTROLS: [TourControl, RegExp][] = [
+  ['pause', /^(?:pause|wait|hold on|hold|hang on|freeze)$/],
+  ['resume', /^(?:resume|continue|go on|carry on|keep going|play|unpause)$/],
+  ['stop', /^(?:stop|end|exit|quit|cancel|close|enough|that'?s enough)$/],
+  ['next', /^(?:next|next step|skip|skip ahead|forward|go forward|move on)$/],
+  ['previous', /^(?:back|go back|step back|previous|previous step|prev)$/],
+  ['repeat', /^(?:again|repeat|repeat that|once more)$/],
+  ['restart', /^(?:restart|replay|start over|start again|from the start|from the beginning)$/],
+];
+
+/** A word that steers a playing tour ("pause", "next step please", "stop the tour"); null for anything else. */
+export const parseTourControl = (text: string): TourControl | null => {
+  const words = text.toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z' ]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/^(?:(?:ok|okay|alright|now|so|please|pls|plz) )+/, '')
+    .replace(/(?: (?:please|pls|plz|now|it|this|the tour|tour|for a moment|for a sec|a sec|a second))+$/, '');
+  for (const [control, pattern] of TOUR_CONTROLS) if (pattern.test(words)) return control;
+  return null;
+};
+
 // --- QUESTIONS THAT ASK FOR A TOUR ---
 // "Explain this protein like a journey", "walk me through the active site", "step by step": the
 // answer's tour starts by itself, whether or not the AI also asked for it ("tour:play"). What the

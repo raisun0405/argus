@@ -55,6 +55,7 @@ import {
   residueKey,
   residueLabel,
   selectChain,
+  selectionForAi,
   toAtomSpec,
   type Selection as ResidueSelection,
   type StructureModel,
@@ -108,6 +109,8 @@ export interface WorkspaceCommands {
   focusHighlights: (highlights: Highlight[]) => boolean;
   openTool: (tool: 'pockets' | 'interactions' | 'pathogenicity' | 'overlay' | 'cofold' | 'partners' | 'similar' | 'alphafold' | 'pae') => void;
   available: (tool: string) => boolean;
+  /** The residues selected in 3D as the chat describes them to the AI ("A:Cys7"); null when none are. */
+  selectionText: () => string | null;
   structureId: string;
   chains: string[];
 }
@@ -2411,6 +2414,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       focusHighlights,
       openTool,
       available: tool => toolAvailable(tool as ToolName),
+      selectionText: () => (model ? selectionForAi(selection, model) : null),
       structureId,
       chains: model?.chains.map(c => c.chain) ?? [],
     };

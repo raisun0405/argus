@@ -231,7 +231,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Parse body
-  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown };
+  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown; lastQuiz?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -257,6 +257,8 @@ export default async function handler(req: Request): Promise<Response> {
         pdbId: typeof rawCtx.pdbId === 'string' ? rawCtx.pdbId.slice(0, 40) : undefined,
         title: typeof rawCtx.title === 'string' ? rawCtx.title.slice(0, 200) : undefined,
         highlights: normalizeHighlights(rawCtx.highlights).slice(0, 20),
+        // The residues selected in the 3D view ("A:Cys7, B:His10"), as the app describes them
+        selection: typeof rawCtx.selection === 'string' ? rawCtx.selection.replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 300) : '',
       }
     : undefined;
 
@@ -290,7 +292,7 @@ ${facts}
 - Currently Loaded PDB: ${ctx.pdbId ?? '(unknown)'}
 - Title: ${ctx.title ?? '(unknown)'}
 - Current Highlights: ${JSON.stringify(ctx.highlights).slice(0, 2500)}
-${factsPrompt}
+${ctx.selection ? `- Selected in the 3D view: ${ctx.selection} (what "this", "these", "here" or "the selection" mean in the query: answer about these residues and mark them in highlights, with exactly these chain IDs and numbers)\n` : ''}${factsPrompt}
 INSTRUCTIONS FOR FOLLOW-UP:
 1. Focus/Zoom Mode: If the user asks about a specific site (e.g., "Where is the active site?", "Show me the heme group"), provide the specific residues in "highlights". The viewer will AUTOMATICALLY ZOOM IN and dim the rest of the protein.
 2. Labels: ALWAYS provide a "label" for highlights.
@@ -301,8 +303,15 @@ ${groundingRule}
 `
     : '';
 
-  // The app spaces quizzes out (services/quiz.ts) and says when it would leave one out: no tokens on it
-  const quizNote = body.quiz === false ? 'Do not include a "quiz" in this answer: the user had one a moment ago.\n\n' : '';
+  // The app spaces quizzes out (services/quiz.ts) and says when it would leave one out: no tokens on it.
+  // When the user asks for one ("another question"), it says so, with the last question, since the AI
+  // sees no history and would otherwise ask the same one again
+  const lastQuiz = typeof body.lastQuiz === 'string' ? body.lastQuiz.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+  const quizNote = body.quiz === false
+    ? 'Do not include a "quiz" in this answer: the user had one a moment ago.\n\n'
+    : body.quiz === true
+      ? `Include a "quiz" in this answer: the user asked for one.${lastQuiz ? ` Their last question was "${lastQuiz}": ask about a different residue, ligand or feature, not that again.` : ''}\n\n`
+      : '';
 
   const userPrompt = `${contextPrompt}Query: "${query}"
 

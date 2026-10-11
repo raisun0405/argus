@@ -72,21 +72,23 @@ const hashString = (str: string) => {
 /**
  * Cache key for a question, or null when its answer shouldn't be cached. Answers made without
  * facts are cached separately, so they get redone once facts load; "Quiz me" always goes to the
- * model, since the same cached question for a day defeats the point.
+ * model, since the same cached question for a day defeats the point. The residues selected in 3D
+ * are part of the question ("what is this residue?" is a new question for each one).
  */
-const cacheKeyFor = (query: string, currentContext?: ProteinAnalysis, structureFacts?: string | null) =>
+const cacheKeyFor = (query: string, currentContext?: ProteinAnalysis, structureFacts?: string | null, selection?: string) =>
   /\bquiz\b/i.test(query)
     ? null
-    : hashString(query.toLowerCase() + (currentContext?.pdbId || '') + (structureFacts ? '|grounded' : ''));
+    : hashString(query.toLowerCase() + (currentContext?.pdbId || '') + (structureFacts ? '|grounded' : '') + (selection ? `|selected ${selection}` : ''));
 
 /** Cache the answer finally shown for a question (after the structure check, see ReasoningEngine). */
 export const rememberAnalysis = (
   query: string,
   currentContext: ProteinAnalysis | undefined,
   structureFacts: string | null | undefined,
-  data: ProteinAnalysis
+  data: ProteinAnalysis,
+  selection?: string
 ) => {
-  const key = cacheKeyFor(query, currentContext, structureFacts);
+  const key = cacheKeyFor(query, currentContext, structureFacts, selection);
   if (key) saveAnalysisToCache(key, data);
 };
 
@@ -100,13 +102,17 @@ export const analyzeProteinQuery = async (
     readCache?: boolean;
     writeCache?: boolean;
     onRateLimitWait?: (seconds: number) => void; // The AI is rate-limited: retrying once after this wait
-    quiz?: boolean; // false: the app would leave a quiz out (services/quiz.ts), so the AI needn't write one
+    // false: the app would leave a quiz out (services/quiz.ts), so the AI needn't write one. true: the
+    // user asked for one ("another question"), never from the cache, and not lastQuiz again
+    quiz?: boolean;
+    lastQuiz?: string;
+    selection?: string; // The residues selected in 3D ("A:Cys7"), what "this" or "these" in the question mean
   } = {}
 ): Promise<ProteinAnalysis> => {
-  const { readCache = true, writeCache = true, onRateLimitWait, quiz } = options;
+  const { readCache = true, writeCache = true, onRateLimitWait, quiz, lastQuiz, selection } = options;
   try {
     // 1. Cache check
-    const cacheKey = cacheKeyFor(query, currentContext, structureFacts);
+    const cacheKey = quiz === true ? null : cacheKeyFor(query, currentContext, structureFacts, selection);
     const cachedData = readCache && cacheKey ? getAnalysisFromCache(cacheKey) : null;
     if (cachedData) {
       console.log("Analysis Cache Hit");
@@ -115,12 +121,18 @@ export const analyzeProteinQuery = async (
 
     // 2. Call our serverless function (it only reads these context fields)
     const context = currentContext
-      ? { pdbId: currentContext.pdbId, title: currentContext.title, highlights: currentContext.highlights }
+      ? { pdbId: currentContext.pdbId, title: currentContext.title, highlights: currentContext.highlights, ...(selection ? { selection } : {}) }
       : undefined;
     const post = () => fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, currentContext: context, ...(structureFacts ? { structureFacts } : {}), ...(quiz === false ? { quiz: false } : {}) }),
+      body: JSON.stringify({
+        query,
+        currentContext: context,
+        ...(structureFacts ? { structureFacts } : {}),
+        ...(quiz === undefined ? {} : { quiz }),
+        ...(quiz === true && lastQuiz ? { lastQuiz: lastQuiz.slice(0, 300) } : {}),
+      }),
     });
     let response = await post();
 

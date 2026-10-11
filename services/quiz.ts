@@ -58,10 +58,26 @@ export const markQuiz = (right: number[], picked: number[]): 'correct' | 'partly
 
 export const QUIZ_GAP = 2;
 
-const QUIZ_ASKED = /\b(?:quiz|quizzes|test me|test us|test my|question me|check my understanding|ask me (?:a |some )?questions?)\b/i;
+const QUIZ_ASKED = /\b(?:quiz|quizzes|test me|test us|test my|question me|check my understanding|ask (?:me|us) (?:a |some |another |more |one more |a new |a harder |an easier |a different )?questions?|(?:give|throw|send) (?:me|us) (?:another|one more|a new|a harder|an easier|a different|more|harder|easier) questions?)\b/;
+// The whole message asks for the next question: "another question", "next question please", "a harder question"
+const NEXT_QUESTION = /^(?:(?:can|could|may) (?:i|we) (?:have|get) |i want |i'?d like )?(?:an?other|the next|next|one more|more|a new|new|a harder|harder|an easier|easier|a different|different|a tougher|tougher|a simpler|simpler)(?: quiz)? questions?$/;
+// Right after a quiz, a short "another one", "next" or "again" asks for its next question
+const ANOTHER_ONE = /^(?:(?:give|ask) (?:me|us) )?(?:an?other(?: one)?|the next one|next(?: one)?|one more|more|again|(?:a )?harder one|harder|(?:an )?easier one|easier)$/;
 
-/** The user asks to be quizzed. */
-export const asksForQuiz = (text: string): boolean => QUIZ_ASKED.test(text.replace(/\s+/g, ' '));
+/** The message as these patterns read it: lower case, no punctuation, no "please" or "ok" around it. */
+const plain = (text: string) =>
+  text.toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/^(?:(?:ok|okay|alright|now|so|and|please|pls|plz) )+/, '')
+    .replace(/(?: (?:please|pls|plz|now|thanks|thank you))+$/, '');
+
+/** The user asks to be quizzed: "Quiz me on...", "test me", "another question"... */
+export const asksForQuiz = (text: string): boolean => {
+  const words = plain(text);
+  return QUIZ_ASKED.test(words) || NEXT_QUESTION.test(words);
+};
+
+/** "Another one", "next", "again": a request for the next question, when it comes right after a quiz. */
+export const asksForAnotherQuiz = (text: string): boolean => ANOTHER_ONE.test(plain(text));
 
 /** Whether an answer may come with a quiz nobody asked for, given the answers shown before it (oldest first). */
 export const quizWelcome = (earlier: { quiz?: unknown }[]): boolean => !earlier.slice(-QUIZ_GAP).some(answer => answer.quiz);

@@ -4,7 +4,7 @@ import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchR
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
 import { FIREWALL_MESSAGE } from '../services/http';
 import QuizCard from './QuizCard';
-import { asksForQuiz, quizWelcome, withoutQuiz } from '../services/quiz';
+import { asksForAnotherQuiz, asksForQuiz, quizWelcome, withoutQuiz } from '../services/quiz';
 import ThemeSwitcher from './ThemeSwitcher';
 import SimilarStructuresCard from './SimilarStructuresCard';
 import PartnersCard from './PartnersCard';
@@ -23,7 +23,7 @@ import AnswerTour from './chat/AnswerTour';
 import AnswerChecks from './chat/AnswerChecks';
 import ErrorBoundary, { MessageCrash } from './ErrorBoundary';
 import TweakPanel from './chat/TweakPanel';
-import { actionDone, actionFailed, actionFromId, actionPlanned, asksForTour, parseChatCommand, type ActionResult, type ChatAction } from '../services/chatActions';
+import { actionDone, actionFailed, actionFromId, actionPlanned, asksForTour, parseChatCommand, parseTourControl, type ActionResult, type ChatAction, type TourControl } from '../services/chatActions';
 import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
@@ -58,12 +58,13 @@ interface ReasoningEngineProps {
   headerStart?: React.ReactNode; // In place of the name at the header's left (a phone's switch between chat and structure)
   onTourState?: (state: { active: boolean; paused: boolean }) => void; // So the viewer can offer the tour's controls too
   tourControlsRef?: React.MutableRefObject<{ pause: () => void; stop: () => void } | null>;
+  getSelection?: () => { structureId: string; text: string } | null; // The residues selected in 3D, sent with each question
 }
 
 // What the tour button (and "play the tour" without one) asks the AI for
 const TOUR_REQUEST = 'Generate a cinematic tour explaining the key features of this structure.';
 
-const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, onTourStep, onSubtitleChange, currentAnalysis, isInitialLoad, similarityRequest, partnersRequest, cofoldRequest, askRequest, onOpenPalette, onBusyChange, sharedAnalysis, sharedError, getShareLink, shareDisabledReason, onFocusHighlights, onRunActions, headerStart, onTourState, tourControlsRef }) => {
+const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, onTourStep, onSubtitleChange, currentAnalysis, isInitialLoad, similarityRequest, partnersRequest, cofoldRequest, askRequest, onOpenPalette, onBusyChange, sharedAnalysis, sharedError, getShareLink, shareDisabledReason, onFocusHighlights, onRunActions, headerStart, onTourState, tourControlsRef, getSelection }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<string | null>(null); // New state for granular feedback
@@ -98,6 +99,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // Refs
   const isTourActiveRef = useRef(false);
   const playingTourRef = useRef<TourStep[] | null>(null);
+  const tourIndexRef = useRef(0); // The step on screen
+  const tourJumpRef = useRef<number | null>(null); // A step asked for ("next", "back"): the loop goes there next
   const tourRunRef = useRef(0); // Bumped on every Play/Stop, so a stopped tour's loop can't carry on
   const isPausedRef = useRef(false); // Read by the tour loop's timed waits
   const recognitionRef = useRef<any>(null);
@@ -240,11 +243,13 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       }
   };
 
-  // Waits `ms` of un-paused time. Resolves false as soon as this tour run is stopped or replaced.
+  // Waits `ms` of un-paused time. Resolves false as soon as this tour run is stopped or replaced, and
+  // early when another step is asked for ("next", "back")
   const tourWait = async (run: number, ms: number) => {
     let remaining = ms;
     while (remaining > 0) {
       if (tourRunRef.current !== run) return false;
+      if (tourJumpRef.current !== null) return true;
       const tick = Math.min(remaining, 100);
       await new Promise(r => setTimeout(r, tick));
       if (!isPausedRef.current) remaining -= tick;
@@ -273,6 +278,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     isTourActiveRef.current = true;
     playingTourRef.current = steps;
     setPlayingTour(steps);
+    tourIndexRef.current = 0;
+    tourJumpRef.current = null;
 
     try {
         // --- RELAY RACE BUFFERING STRATEGY ---
@@ -317,6 +324,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
             // 4. Update Visuals (Synced with start of playback)
             if (tourRunRef.current !== run) break;
             onTourStep(step.focus);
+            tourIndexRef.current = i;
             setTourStep({ index: i, count: steps.length });
             onSubtitleChange(step.text);
 
@@ -331,8 +339,17 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
                 if (!(await tourWait(run, readingMs))) break;
             }
 
-            // 6. Cinematic pause between steps
-            if (i < steps.length - 1 && !(await tourWait(run, 600))) break;
+            // 6. Cinematic pause between steps (none when another step was asked for)
+            if (tourJumpRef.current === null && i < steps.length - 1 && !(await tourWait(run, 600))) break;
+
+            // 7. "Next", "back", "again": that step comes next instead; past the last one, the tour is over
+            const jump = tourJumpRef.current;
+            if (jump !== null) {
+                tourJumpRef.current = null;
+                if (tourRunRef.current !== run || jump >= steps.length) break;
+                i = jump - 1; // The loop's i++ makes it the step asked for
+                nextAudioPromise = fetchAudioSafe(steps[jump].text);
+            }
         }
     } catch (e) {
         console.error("Tour Error", e);
@@ -351,8 +368,18 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       (pause ? ctx?.suspend() : ctx?.resume())?.catch(() => {});
   };
 
+  // "Next", "back", "again": the tour moves to that step at once (a paused tour stays paused there)
+  const jumpTour = (to: number) => {
+      if (!isTourActiveRef.current) return;
+      tourJumpRef.current = Math.max(0, to);
+      if (activeSourceRef.current) {
+          try { activeSourceRef.current.stop(); } catch(e) {} // Narration ends its step early
+      }
+  };
+
   const handleStopTour = () => {
       tourRunRef.current++;
+      tourJumpRef.current = null;
       setTourStep(null);
       isTourActiveRef.current = false;
       isPausedRef.current = false;
@@ -458,8 +485,57 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     if (askForTour) processQuery(TOUR_REQUEST, true, { playTour: true });
   };
 
+  // While a tour plays, "pause", "next", "stop" and the like steer it here, with no AI call (the AI's
+  // new answer would end the tour); the reply says what it did
+  const runTourControl = (text: string, control: TourControl, hidden: boolean) => {
+    const count = playingTourRef.current?.length ?? 0;
+    const at = tourIndexRef.current;
+    const step = (i: number) => `Step ${i + 1} of ${count}`;
+    let label: string;
+    switch (control) {
+      case 'pause':
+        if (!isPausedRef.current) handlePauseTour();
+        label = 'Tour paused';
+        break;
+      case 'resume':
+        label = isPausedRef.current ? 'Tour resumed' : 'Tour playing';
+        if (isPausedRef.current) handlePauseTour();
+        break;
+      case 'stop':
+        handleStopTour();
+        label = 'Tour stopped';
+        break;
+      case 'next':
+        label = at + 1 >= count ? 'Tour finished' : step(at + 1);
+        jumpTour(at + 1);
+        break;
+      case 'previous':
+        label = step(Math.max(0, at - 1));
+        jumpTour(at - 1);
+        break;
+      case 'repeat':
+        label = `${step(at)}, again`;
+        jumpTour(at);
+        break;
+      case 'restart':
+        label = `Tour from the start · ${step(0)}`;
+        jumpTour(0);
+        break;
+    }
+    const id = ++messageSeqRef.current;
+    setMessages(prev => [
+      ...prev,
+      ...(hidden ? [] : [{ role: 'user' as const, content: text }]),
+      { id, role: 'assistant' as const, content: '', actionResults: [actionDone({ kind: 'tour', play: control !== 'stop' }, label)] },
+    ]);
+  };
+
   const processQuery = async (userQuery: string, hidden: boolean = false, options: { playTour?: boolean } = {}) => {
     if (!userQuery.trim() || isLoading) return;
+
+    // A playing tour is steered by "pause", "next", "stop"... (anything else is a question as usual)
+    const tourControl = isTourActiveRef.current ? parseTourControl(userQuery) : null;
+    if (tourControl) return runTourControl(userQuery.trim(), tourControl, hidden);
 
     // "investigate: <question>": the AI plans steps, the app runs its own tools, the AI writes up the results
     const investigateQuestion = parseInvestigateCommand(userQuery);
@@ -525,10 +601,23 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         setLoadingPhase(`The AI is busy, trying again in ${seconds} s…`);
       };
       // A quiz nobody asked for waits until two answers without one have gone by (services/quiz). It
-      // goes before the checks, which would otherwise count the residues of a quiz never shown
-      const quizAllowed = asksForQuiz(userQuery) || quizWelcome(messages.flatMap(m => (m.data ? [m.data] : [])));
+      // goes before the checks, which would otherwise count the residues of a quiz never shown. One
+      // asked for always comes ("quiz me", "another question", or "next" right after a quiz), and not
+      // the question just asked again: the AI sees no history, so it is told the last one
+      const answers = messages.flatMap(m => (m.data ? [m.data] : []));
+      const quizAsked = asksForQuiz(userQuery) || (Boolean(answers[answers.length - 1]?.quiz) && asksForAnotherQuiz(userQuery));
+      const quizAllowed = quizAsked || quizWelcome(answers);
       const keepQuiz = (answer: ProteinAnalysis) => (quizAllowed ? answer : withoutQuiz(answer));
-      let analysis = keepQuiz(await analyzeProteinQuery(userQuery, currentAnalysis, structureFacts, { writeCache: false, onRateLimitWait, quiz: quizAllowed }));
+      const quizRequest = {
+        quiz: quizAsked ? true : quizAllowed ? undefined : false,
+        lastQuiz: quizAsked ? [...answers].reverse().find(a => a.quiz)?.quiz?.question : undefined,
+      };
+      // The residues selected in 3D go with the question, so "what is this residue?" is about them
+      // (only while they belong to the structure the question is asked about)
+      const picked = getSelection?.() ?? null;
+      const selectionOn = (pdbId?: string) => (picked && pdbId && picked.structureId.toUpperCase() === pdbId.toUpperCase() ? picked.text : undefined);
+      const selection = selectionOn(currentAnalysis?.pdbId);
+      let analysis = keepQuiz(await analyzeProteinQuery(userQuery, currentAnalysis, structureFacts, { writeCache: false, onRateLimitWait, ...quizRequest, selection }));
 
       // API returned. Stop background updates.
       activeRequestRef.current = 0;
@@ -577,7 +666,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           problems: inspection ? inspection.missing + inspection.wrong + inspection.misnamed : 0,
         };
         try {
-          const repaired = keepQuiz(await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait, quiz: quizAllowed }));
+          const repaired = keepQuiz(await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait, ...quizRequest, selection: selectionOn(analysis.pdbId) }));
           const remaining = await checkAnswer(repaired);
           const remainingIdentity = await checkIdentity(repaired);
           let outcome: 'kept' | 'first' | 'unverified';
@@ -602,8 +691,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       trail.corrected = shown !== analysis;
       analysis = shown;
       // An answer about the wrong protein isn't kept for the next time the question is asked: replayed,
-      // its corrected heading would pass the very check it failed
-      if (!trail.corrected) rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis);
+      // its corrected heading would pass the very check it failed. Nor is a quiz asked for: "another
+      // question" asked again must bring a new one
+      if (!trail.corrected && !quizAsked) rememberAnalysis(userQuery, currentAnalysis, structureFacts, analysis, selection);
       const checks = await collectChecks(analysis, trail);
 
       // 2. Draft Response & Pre-load Audio (skipped while narration is disabled: nothing to load)
@@ -1107,6 +1197,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         onPlay={() => playAnswerTour(steps)}
         onPause={handlePauseTour}
         onStop={handleStopTour}
+        onPrevious={() => jumpTour(tourIndexRef.current - 1)}
+        onNext={() => jumpTour(tourIndexRef.current + 1)}
       />
     );
   };

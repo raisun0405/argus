@@ -356,3 +356,18 @@ export const describeSelection = (selection: Selection, model: StructureModel, m
   const text = parts.join(' · ');
   return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
 };
+
+/**
+ * The selection as the chat sends it to the AI with a question, so "what is this residue?" is about it:
+ * each residue by name when there are a few ("A:Cys7, B:His10"), ranges and a count when there are
+ * many ("A:1-21 · B:1-30 (51 residues)"). Null when nothing is selected.
+ */
+export const selectionForAi = (selection: Selection, model: StructureModel, maxNamed = 12): string | null => {
+  const residues = [...selection.keys].map(key => model.byKey.get(key)).filter((r): r is ModelResidue => Boolean(r));
+  if (residues.length === 0) return null;
+  if (residues.length > maxNamed) return `${describeSelection(selection, model, 240)} (${residues.length} residues)`;
+  return residues
+    .sort((a, b) => a.chain.localeCompare(b.chain) || a.resi - b.resi || a.icode.localeCompare(b.icode))
+    .map(r => `${r.chain}:${residueLabel(r)}`)
+    .join(', ');
+};
