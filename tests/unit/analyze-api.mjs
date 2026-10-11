@@ -129,4 +129,24 @@ check('...a selection that is not text is left out', !/Selected in the 3D view/.
 await call({ query: 'what is this residue?', currentContext: context });
 check('...and no selection, no line', !/Selected in the 3D view/.test(userPrompt()));
 
+// 10. "more of the tour": the AI is shown the tour so far (it sees no history) and asked for new steps
+const SO_FAR = [
+  { text: 'The whole hexamer.', focus: [] },
+  { text: 'The A7 to B7 disulfide\nties the chains.', focus: [{ chain: 'A', resi: [7], label: 'Cys A7', category: 'other' }, { chain: 'B', resi: [7], label: 'Cys B7', category: 'other' }] },
+];
+await call({ query: 'Continue the tour with new steps.', currentContext: context, tourSoFar: SO_FAR });
+check('tourSoFar -> the steps, numbered, with where each one looked',
+  /1\. \[the whole structure\] The whole hexamer\.\n2\. \[A:7 Cys A7; B:7 Cys B7\] The A7 to B7 disulfide ties the chains\./.test(userPrompt()), userPrompt().slice(-700));
+check('...and the AI is asked for new steps that carry on from them', /Write a "tour" of 3-5 NEW steps that carry on from it/.test(userPrompt()) && /never a place or a point it already made/.test(userPrompt()));
+await call({ query: 'x', currentContext: context });
+check('...no tour so far, no such lines', !/has watched this tour/.test(userPrompt()));
+await call({ query: 'x', currentContext: context, tourSoFar: 'not a list' });
+check('...a tour so far that is not a list is left out', !/has watched this tour/.test(userPrompt()));
+const LONG = Array.from({ length: 30 }, (_, i) => ({ text: `Step number ${i + 1}. ${'Words '.repeat(60)}`, focus: [{ chain: 'A', resi: [i + 1], label: 'x'.repeat(200), category: 'other' }] }));
+await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), title: 'T'.repeat(10000), highlights: hugeHighlights }, structureFacts: 'F'.repeat(100000), tourSoFar: LONG });
+const withTour = userPrompt();
+const tourBlock = withTour.slice(withTour.indexOf('asks for more of it:\n') + 'asks for more of it:\n'.length, withTour.indexOf('\nWrite a "tour" of 3-5 NEW'));
+check('...capped at 1400 characters, the newest steps kept', tourBlock.length <= 1400 && /Step number 30\./.test(tourBlock) && !/Step number 1\./.test(tourBlock), `${tourBlock.length} chars`);
+check('...so even the largest context stays under 10000 characters (~2.5K tokens)', withTour.length < 10000, `${withTour.length} chars`);
+
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

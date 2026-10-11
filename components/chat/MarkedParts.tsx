@@ -79,7 +79,8 @@ const MarkedParts: React.FC<MarkedPartsProps> = ({ highlights, live, onFocus }) 
             </>
           );
           return (
-            <li key={part.key}>
+            // Keyed by name, one row each: two parts can sit on the same residues ("Heme", "Heme iron")
+            <li key={part.name.toLowerCase()}>
               {live ? (
                 <button
                   type="button"

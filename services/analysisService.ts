@@ -1,4 +1,4 @@
-import { ProteinAnalysis } from "../types";
+import { ProteinAnalysis, TourStep } from "../types";
 import { normalizeAnalysis } from "./normalizeAnalysis";
 import { FIREWALL_MESSAGE, stoppedByFirewall } from "./http";
 
@@ -107,12 +107,14 @@ export const analyzeProteinQuery = async (
     quiz?: boolean;
     lastQuiz?: string;
     selection?: string; // The residues selected in 3D ("A:Cys7"), what "this" or "these" in the question mean
+    // "More of the tour": the steps already shown, so the AI carries on from them (never from the cache)
+    tourSoFar?: TourStep[];
   } = {}
 ): Promise<ProteinAnalysis> => {
-  const { readCache = true, writeCache = true, onRateLimitWait, quiz, lastQuiz, selection } = options;
+  const { readCache = true, writeCache = true, onRateLimitWait, quiz, lastQuiz, selection, tourSoFar } = options;
   try {
     // 1. Cache check
-    const cacheKey = quiz === true ? null : cacheKeyFor(query, currentContext, structureFacts, selection);
+    const cacheKey = quiz === true || tourSoFar?.length ? null : cacheKeyFor(query, currentContext, structureFacts, selection);
     const cachedData = readCache && cacheKey ? getAnalysisFromCache(cacheKey) : null;
     if (cachedData) {
       console.log("Analysis Cache Hit");
@@ -132,6 +134,7 @@ export const analyzeProteinQuery = async (
         ...(structureFacts ? { structureFacts } : {}),
         ...(quiz === undefined ? {} : { quiz }),
         ...(quiz === true && lastQuiz ? { lastQuiz: lastQuiz.slice(0, 300) } : {}),
+        ...(tourSoFar?.length ? { tourSoFar: tourSoFar.slice(-12).map(s => ({ text: s.text, focus: s.focus })) } : {}),
       }),
     });
     let response = await post();

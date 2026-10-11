@@ -103,10 +103,9 @@ EDUCATIONAL QUIZ MODE:
 
 CINEMATIC TOUR MODE:
 - If the user asks for "explanation", "how it works", "mechanism", "show me", a "tour" or "journey", to be walked through something, "step by step", or similar, include a "tour" array.
-- The tour should be 2-4 steps.
-- Each step has "text" (1-2 sentences) and "focus" (the residues to zoom into).
-- When the user names what the tour covers (a site, a domain, a chain, residues, a ligand, or "these" parts = the current highlights), every step stays within those parts; no step about the rest of the protein.
-- Otherwise: Step 1: whole active site. Step 2: zoom into a specific residue. Step 3: substrate or next feature.
+- Each step has "text" (1-2 sentences) and "focus" (the residues to zoom into; [] shows the whole structure). One place per step.
+- A tour of named parts (a site, a domain, a chain, residues, a ligand, or "these" parts = the current highlights) stays within those parts, with no step about the rest of the protein: 2-4 steps. So does the tour of an answer that explains one mechanism or site.
+- A tour of the whole structure (the user asks for a tour, a full, general or complete tour, or to be walked through the protein, naming no part of it) has 5-7 steps: first the whole molecule (what it is, its chains and how they fit together; focus []), then the parts that matter, one per step (the active or binding site, a key residue up close, each ligand, cofactor or metal, a contact between chains), and last the whole again, with what the parts add up to (focus []).
 
 VISUALIZATION CATEGORY RULES (the "category" field):
 - "metal": single-atom ions (Fe, Zn, Mg, Ca, etc.)
@@ -173,6 +172,28 @@ async function resolveUniProtAccession(gene: string, taxId: number): Promise<str
   return null;
 }
 
+// --- THE TOUR SO FAR ---
+// For "more of the tour": the steps already shown, as numbered lines naming where each one looked
+// ("2. [A:87 Proximal His] The proximal histidine..."). Cleaned and capped like the rest of the
+// context (at most ~350 tokens more, and only on this request); when long, the newest steps are kept.
+const TOUR_SO_FAR_MAX_STEPS = 12;
+const TOUR_SO_FAR_MAX_CHARS = 1400;
+
+function tourSoFarLines(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  const steps = value.slice(-TOUR_SO_FAR_MAX_STEPS).flatMap((step: any) => {
+    const said = typeof step?.text === 'string' ? step.text.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+    if (!said) return [];
+    const where = normalizeHighlights(step?.focus).slice(0, 4)
+      .map(h => `${h.chain}:${h.resi.slice(0, 6).join(',')}${h.label ? ` ${h.label.slice(0, 30)}` : ''}`)
+      .join('; ');
+    return [{ where: where || 'the whole structure', said }];
+  });
+  let lines = steps.map((s, i) => `${i + 1}. [${s.where}] ${s.said}`);
+  while (lines.length > 1 && lines.join('\n').length > TOUR_SO_FAR_MAX_CHARS) lines = lines.slice(1);
+  return lines.join('\n').slice(0, TOUR_SO_FAR_MAX_CHARS);
+}
+
 // --- RATE LIMIT ---
 // Best effort: each Edge instance counts recent requests per visitor IP. Instances are many and
 // short-lived, so this is no substitute for a Vercel Firewall rule, but it stops one script
@@ -232,7 +253,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Parse body
-  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown; lastQuiz?: unknown };
+  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown; lastQuiz?: unknown; tourSoFar?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -314,9 +335,16 @@ ${groundingRule}
       ? `Include a "quiz" in this answer: the user asked for one.${lastQuiz ? ` Their last question was "${lastQuiz}": ask about a different residue, ligand or feature, not that again.` : ''}\n\n`
       : '';
 
+  // "More of the tour": the AI sees no history, so it is shown the tour so far (newest steps kept when
+  // long) and asked for steps that carry on from it rather than the same tour in other words
+  const tourSoFar = tourSoFarLines(body.tourSoFar);
+  const tourNote = tourSoFar
+    ? `The user has watched this tour of the structure and asks for more of it:\n${tourSoFar}\nWrite a "tour" of 3-5 NEW steps that carry on from it: parts it did not show (other sites, residues, ligands, cofactors, metals, chains or the contacts between them), never a place or a point it already made, and no step back to the whole. If nothing important is left, return "tour": [] and say so in "summary".\n\n`
+    : '';
+
   const userPrompt = `${contextPrompt}Query: "${query}"
 
-${quizNote}Output the JSON analysis object now.`;
+${quizNote}${tourNote}Output the JSON analysis object now.`;
 
   // API key from server env (Vercel injects at runtime)
   const apiKey = process.env.NEBIUS_API_KEY;

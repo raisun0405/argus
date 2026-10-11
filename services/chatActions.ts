@@ -29,7 +29,7 @@ export type ChatAction =
   | { kind: 'clear-selection' }
   | { kind: 'inspector'; open: boolean }
   | { kind: 'theme'; theme: string; name: string }
-  | { kind: 'tour'; play: boolean }
+  | { kind: 'tour'; play: boolean; from?: number } // from: the step it starts at (0 = the first)
   | { kind: 'picture' } // Save the 3D view as a PNG file (only the user asks for this)
   | { kind: 'chains'; only: string[] } // Show only these chains (every chain again when empty)
   | { kind: 'spin'; on: boolean } // Turn the structure slowly about its vertical axis
@@ -87,7 +87,7 @@ export const describeAction = (a: ChatAction): string => {
     case 'clear-selection': return 'Selection cleared';
     case 'inspector': return a.open ? 'Inspector opened' : 'Inspector closed';
     case 'theme': return `Theme: ${a.name}`;
-    case 'tour': return a.play ? 'Tour started' : 'Tour stopped';
+    case 'tour': return a.play ? (a.from ? `Tour from step ${a.from + 1}` : 'Tour started') : 'Tour stopped';
     case 'picture': return 'Picture saved';
     case 'chains': return a.only.length ? `Only chain${a.only.length > 1 ? 's' : ''} ${a.only.join(', ')} shown` : 'All chains shown';
     case 'spin': return a.on ? 'Spinning (say "stop spinning" to stop)' : 'Spin stopped';
@@ -667,7 +667,9 @@ export const unsupportedAsks = (text: string): ActionResult[] => {
 // "Pause", "next", "stop": while a tour plays, a short word like these steers it, with no AI call (the
 // AI's new answer would end the tour). Anything longer is a question as usual.
 
-export type TourControl = 'pause' | 'resume' | 'stop' | 'next' | 'previous' | 'repeat' | 'restart';
+/** What a message does to a playing tour: a word's control, a step by its index (0 = the first), or
+ * "more": new steps once it ends. */
+export type TourControl = 'pause' | 'resume' | 'stop' | 'next' | 'previous' | 'repeat' | 'restart' | 'more' | { step: number };
 
 const TOUR_CONTROLS: [TourControl, RegExp][] = [
   ['pause', /^(?:pause|wait|hold on|hold|hang on|freeze)$/],
@@ -675,16 +677,92 @@ const TOUR_CONTROLS: [TourControl, RegExp][] = [
   ['stop', /^(?:stop|end|exit|quit|cancel|close|enough|that'?s enough)$/],
   ['next', /^(?:next|next step|skip|skip ahead|forward|go forward|move on)$/],
   ['previous', /^(?:back|go back|step back|previous|previous step|prev)$/],
-  ['repeat', /^(?:again|repeat|repeat that|once more)$/],
+  ['repeat', /^(?:again|repeat|repeat that|once more|one more time|(?:show|say|do|play) that again|show it again)$/],
   ['restart', /^(?:restart|replay|start over|start again|from the start|from the beginning)$/],
 ];
 
-/** A word that steers a playing tour ("pause", "next step please", "stop the tour"); null for anything else. */
+// The message as the tour's patterns read it: lower case, no punctuation, no "please", "ok" or "can you" around it
+const tourWords = (text: string) => text.toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim()
+  .replace(/^(?:(?:ok|okay|alright|now|so|please|pls|plz|hey|yes|yeah|yaa|ya|sure|just|can you|could you|would you|will you|can u|could u) )+/, '')
+  .replace(/(?: (?:please|pls|plz|now|thanks|thank you|for me))+$/, '');
+
+// The whole tour again, from its first step: "repeat the tour", "play the tour again", "play it all again"
+const TOUR_AGAIN = /^(?:(?:repeat|replay|restart|redo|rewatch)(?: the| this| that)?(?: same)? (?:whole |full |entire )?tour(?: again)?|(?:play|show|start|run|do|watch|give me)(?: the| this| that)?(?: same)? (?:whole |full |entire )?tour (?:again|once more|one more time)|(?:play|run|do) it (?:all )?again|(?:the )?(?:same |whole )?tour again)$/;
+
+// A step by its number or place: "step 2", "go back to step two", "repeat the second step", "that step again"
+const STEP_PREFIX = '(?:(?:go|jump|skip|move)(?: back)? to |back to |(?:repeat|replay|redo|show|play)(?: me)? |(?:play|start|run)(?: the tour)? (?:at|from) |from )?';
+const NUMBERS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+const STEP_BY_NUMBER = new RegExp(`^${STEP_PREFIX}(?:the )?step (\\d{1,2}|${NUMBERS.join('|')})(?: again)?$`);
+const STEP_BY_PLACE = new RegExp(`^${STEP_PREFIX}(?:the (${ORDINALS.join('|')}|last|final)|the|that|this) step(?: again)?$`);
+
+/** The step a message names, as an index (0 = the first; -1 = the one just shown, or a tour's last); null when it names none. */
+const stepNamed = (words: string): number | null => {
+  const byNumber = STEP_BY_NUMBER.exec(words);
+  if (byNumber) {
+    const n = /^\d+$/.test(byNumber[1]) ? Number(byNumber[1]) : NUMBERS.indexOf(byNumber[1]) + 1;
+    return n >= 1 ? n - 1 : null;
+  }
+  const byPlace = STEP_BY_PLACE.exec(words);
+  if (byPlace) return byPlace[1] && ORDINALS.includes(byPlace[1]) ? ORDINALS.indexOf(byPlace[1]) : -1;
+  return null;
+};
+
+// New steps after the tour's last one: "give more tour of same", "more steps", "tell me more", "extend the tour"
+const TOUR_MORE = [
+  /^(?:(?:give|show|tell|take)(?: me| us)? )?(?:some |a bit |a little |a few )?more(?: (?:tours?|steps|stops|places|parts)| of (?:the |this |that )?(?:same )?tour)?(?: of (?:the |this |that )?(?:same|it))?$/,
+  /^(?:add|give me|show me) (?:some |a few )?more steps$/,
+  /^(?:extend|lengthen)(?: the| this)? tour$|^make (?:the |this |it )?(?:tour )?longer$|^(?:a )?longer tour$/,
+  /^(?:the )?(?:next part|rest) of (?:the |this )?tour$/,
+];
+
+/** A message that steers a playing tour ("pause", "next step please", "go back to step 2", "repeat the tour", "more"); null for anything else. */
 export const parseTourControl = (text: string): TourControl | null => {
-  const words = text.toLowerCase().replace(/[’`]/g, "'").replace(/[^a-z' ]+/g, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/^(?:(?:ok|okay|alright|now|so|please|pls|plz) )+/, '')
-    .replace(/(?: (?:please|pls|plz|now|it|this|the tour|tour|for a moment|for a sec|a sec|a second))+$/, '');
-  for (const [control, pattern] of TOUR_CONTROLS) if (pattern.test(words)) return control;
+  const words = tourWords(text);
+  // Read whole before "the tour" comes off its end below: "repeat the tour" is the tour, not its step
+  if (TOUR_AGAIN.test(words)) return 'restart';
+  const step = stepNamed(words);
+  if (step !== null) return step < 0 ? 'repeat' : { step };
+  if (TOUR_MORE.some(pattern => pattern.test(words))) return 'more';
+  const word = words.replace(/(?: (?:it|this|the tour|tour|for a moment|for a sec|a sec|a second))+$/, '');
+  for (const [control, pattern] of TOUR_CONTROLS) if (pattern.test(word)) return control;
+  return null;
+};
+
+// --- AFTER A TOUR ---
+// Outside a tour, a message only about one: the whole structure's tour ("full tour"), the last tour
+// again ("again", "repeat the tour", "go back to step 2"), or new steps after it ("give more tour of
+// same", "continue the tour"). A replay needs no AI; new steps come from the AI, told the tour so far.
+
+/** What a message asks of the tour outside one; from: the step to start at (0 = the first, -1 = its last). */
+export type TourAsk = { ask: 'whole' } | { ask: 'replay'; from?: number } | { ask: 'more' };
+
+// A tour of the whole structure: "full tour", "give me a general tour", "a complete tour of this protein"
+const TOUR_WHOLE_ASKS = [
+  /^(?:(?:give|show|take|play|start|run|do|make)(?: me| us)?(?: on)? )?(?:a |the )?(?:full|whole|entire|complete|general|overall|overview|proper|detailed|comprehensive|thorough|long|big)(?: guided| cinematic)? (?:tour|walkthrough|walk through)(?: of (?:the |this |its |it)?(?:whole |entire |full )?(?:protein|structure|molecule|complex|enzyme|thing|everything)?)?$/,
+  /^(?:(?:give|show|play|start)(?: me| us)? )?(?:a |the )?(?:tour|walkthrough) of (?:the |this )?(?:whole|entire|full|complete) (?:protein|structure|molecule|complex|enzyme|thing)$/,
+  /^(?:tour|walk (?:me|us) through|take (?:me|us) through|show (?:me|us) around) (?:everything|the whole (?:protein|structure|molecule|thing))$/,
+  /^(?:a |the )?(?:tour|walkthrough) of everything$|^tour everything$/,
+];
+// Right after a tour, a bare word means it: "again", "start over" / "continue", "what else"
+const AGAIN_BARE = /^(?:again|repeat|repeat (?:it|that)|replay|replay it|once more|one more time|(?:show|say|do|play) that again|show it again|from the (?:start|beginning|top)|start over|start again|restart|restart it)$/;
+const MORE_BARE = /^(?:go on|continue|keep going|carry on|what else|what else is there|anything else|and then|what'?s next|next part)$/;
+const CONTINUE_TOUR = /^(?:continue|keep going with|go on with|carry on with)(?: the| this)? tour$/; // While it plays, these resume it
+
+/**
+ * A message only about the tour, outside one, and whether it says "tour" or "step" (a bare "again" or
+ * "more" means the tour only right after one); null for anything else.
+ */
+export const parseTourAsk = (text: string): (TourAsk & { named: boolean }) | null => {
+  if (text.length > 80) return null;
+  const words = tourWords(text);
+  if (!words) return null;
+  const named = /\b(?:tours?|steps?|walkthrough|walk through)\b/.test(words);
+  if (TOUR_WHOLE_ASKS.some(pattern => pattern.test(words))) return { ask: 'whole', named: true };
+  const step = stepNamed(words);
+  if (step !== null) return { ask: 'replay', from: step, named: true };
+  if (TOUR_AGAIN.test(words) || AGAIN_BARE.test(words)) return { ask: 'replay', named };
+  if (TOUR_MORE.some(pattern => pattern.test(words)) || CONTINUE_TOUR.test(words) || MORE_BARE.test(words)) return { ask: 'more', named };
   return null;
 };
 

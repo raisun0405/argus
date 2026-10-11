@@ -22,7 +22,7 @@ const answerFor = (query, context) => {
   if (/fade the protein/i.test(query)) {
     return { pdbId: context?.pdbId ?? '4HHB', title: 'Human deoxyhemoglobin', summary: 'The proximal histidines hold the iron.', highlights: [H('A', [87], 'Proximal His87'), H('B', [92], 'Proximal His92')], measurements: [], actions: ['opacity:30'] };
   }
-  if (/Generate a cinematic tour/i.test(query)) {
+  if (/full tour of this whole structure/i.test(query)) {
     return { pdbId: context?.pdbId ?? '4HHB', title: 'Human deoxyhemoglobin', summary: 'A short tour.', highlights: [H('A', [87], 'Proximal His87')], measurements: [],
       tour: [{ text: 'This is haemoglobin, four chains around four hemes, seen whole for a moment.', focus: [] }, { text: 'Here is the proximal histidine of chain A, holding the iron from below.', focus: [H('A', [87], 'His87')] }] };
   }
@@ -147,9 +147,9 @@ try {
 
   console.log('== The tour');
   before = await say('play the tour');
-  check('"play the tour" with no tour asks the AI for one', (await waitFor(`${analyzeCalls.length} >= 0 && document.querySelector('button[aria-label="Stop the tour"]') !== null`, 30000)) >= 0 && analyzeCalls.some(q => /Generate a cinematic tour/.test(q)), analyzeCalls.slice(-1).join(''));
+  check('"play the tour" with no tour asks the AI for one', (await waitFor(`${analyzeCalls.length} >= 0 && document.querySelector('button[aria-label="Stop the tour"]') !== null`, 30000)) >= 0 && analyzeCalls.some(q => /full tour of this whole structure/.test(q)), analyzeCalls.slice(-1).join(''));
   check('…and plays it when it arrives', await ev(`!!document.querySelector('button[aria-label="Stop the tour"]')`));
-  check('…the request shows as one turn (the tour prompt stays hidden)', !(await ev(`[...document.querySelectorAll('[data-message=user]')].some(m => /Generate a cinematic tour/.test(m.textContent))`)));
+  check('…the request shows as one turn (the tour prompt stays hidden)', !(await ev(`[...document.querySelectorAll('[data-message=user]')].some(m => /full tour of this whole structure/.test(m.textContent))`)));
   items = await command('stop the tour');
   check('stop the tour', !(await ev(`!!document.querySelector('button[aria-label="Stop the tour"]')`)) && JSON.stringify(items) === '["done:Tour stopped"]', JSON.stringify(items));
 

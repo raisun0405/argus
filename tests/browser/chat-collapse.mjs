@@ -57,6 +57,13 @@ try {
   check('after folding and unfolding, the chat still offers Stop', !!(await b.ev(`!!${stopTour}`)));
   await b.ev(`${stopTour}?.click()`); // Missing on a broken build: the check above has already said so
   check('...and Stop stops it', (await b.waitFor(`!${stopTour}`, 5000)) >= 0);
+  // Stopped on its first step, the whole structure, the camera flies back to the answer's parts: some
+  // fifty frames, queued faster than this headless page draws them in software. The next resize (the
+  // fold below) waited for all of them, 11-12 s. The flight starts on the viewer's next render; once
+  // it has, reading the picture back waits for its last frame
+  await sleep(500);
+  await b.waitFor(`!window.__testViewer?.isAnimated?.()`, 20000);
+  await b.ev(`(window.__testViewer?.pngURI?.(), true)`);
 
   console.log('\n[3. an answer still on its way]');
   delay = 3000;

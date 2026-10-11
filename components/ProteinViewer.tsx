@@ -138,6 +138,9 @@ const AMINO_ACID_MAP: { [key: string]: string } = {
 // 65% keeps the shape readable and the highlights visible through it.
 const HIGHLIGHT_FADE = 65;
 
+// What a tour's step of the whole structure marks: nothing (one array, so it reads as unchanged between renders)
+const NO_HIGHLIGHTS: Highlight[] = [];
+
 // Highlights with more residues than this are drawn as sticks without the ball overlay
 const MAX_BALL_RESIDUES = 8;
 
@@ -599,8 +602,10 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     [JSON.stringify(measurements), afView, afResidueMap]
   );
 
-  // Determine effective highlights (Tour overrides global)
-  const activeHighlights = (viewTourHighlights && viewTourHighlights.length > 0) ? viewTourHighlights : viewHighlights;
+  // Determine effective highlights (Tour overrides global). A tour step that names no part (its
+  // narration is up, its focus empty) shows the whole structure, nothing marked
+  const tourShowsWhole = Boolean(subtitle) && !viewTourHighlights?.length;
+  const activeHighlights = viewTourHighlights?.length ? viewTourHighlights : tourShowsWhole ? NO_HIGHLIGHTS : viewHighlights;
 
   const openAlphaFold = (accession: string) => {
     setAfView({ accession, fromPdb: pdbId.toUpperCase() });
@@ -2035,7 +2040,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         // Not a view 3Dmol accepts: fall back to the automatic framing
       }
     }
-    if (firstLook || activeHighlights.length === 0) frameWhole();
+    // A tour's step of the whole structure flies there, like its other steps
+    if (firstLook || activeHighlights.length === 0) frameWhole(tourShowsWhole && !firstLook ? 1000 : 0);
     else zoomToHighlights(activeHighlights);
   }, [pdbContent, JSON.stringify(activeHighlights)]);
 

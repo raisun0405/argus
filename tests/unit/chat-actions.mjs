@@ -251,10 +251,36 @@ const CONTROLS = [
   ['back', 'previous'], ['go back', 'previous'], ['previous step', 'previous'],
   ['again', 'repeat'], ['repeat that', 'repeat'],
   ['start over', 'restart'], ['replay', 'restart'], ['restart the tour', 'restart'],
+  // The whole tour again is its first step, not the step on screen
+  ['repeat the tour', 'restart'], ['play the tour again', 'restart'], ['can you repeat the tour', 'restart'], ['play it again', 'restart'], ['tour again', 'restart'],
+  // ...while "once more" and "that step again" are the step on screen
+  ['once more', 'repeat'], ['one more time', 'repeat'], ['show that again', 'repeat'], ['repeat the last step', 'repeat'], ['show that step again', 'repeat'],
+  // New steps once it ends
+  ['more', 'more'], ['give more tour of same', 'more'], ['more steps', 'more'], ['tell me more', 'more'], ['extend the tour', 'more'], ['next part of the tour', 'more'],
+  ['continue the tour', 'resume'], ['keep going', 'resume'],
 ];
 for (const [text, want] of CONTROLS) check(`"${text}" -> ${want}`, A.parseTourControl(text) === want, String(A.parseTourControl(text)));
-for (const text of ['pause the music and explain the active site', 'what happens next?', 'go back to hemoglobin', 'next, explain the heme', 'stop the bleeding', ''])
-  check(`"${text}" is not a tour control`, A.parseTourControl(text) === null, String(A.parseTourControl(text)));
+const STEPS_NAMED = [['step 2', 1], ['go back to step two', 1], ['repeat step 3', 2], ['show me the third step', 2], ['Step 1 please', 0], ['play the tour from step 4', 3]];
+for (const [text, index] of STEPS_NAMED) check(`"${text}" -> step index ${index}`, A.parseTourControl(text)?.step === index, JSON.stringify(A.parseTourControl(text)));
+for (const text of ['pause the music and explain the active site', 'what happens next?', 'go back to hemoglobin', 'next, explain the heme', 'stop the bleeding', 'step 0', 'more transparent', 'what else does it bind?', ''])
+  check(`"${text}" is not a tour control`, A.parseTourControl(text) === null, JSON.stringify(A.parseTourControl(text)));
+
+console.log('== Outside a tour: the whole tour, the last one again, or more of it');
+const show = (ask) => (ask ? `${ask.ask}${ask.from !== undefined ? ` from ${ask.from}` : ''}${ask.named ? ' (named)' : ''}` : 'none');
+for (const [text, want] of [
+  ['full tour', 'whole (named)'], ['give me a general tour', 'whole (named)'], ['a complete tour of this protein', 'whole (named)'], ['tour of the whole protein', 'whole (named)'],
+  ['take me on a full tour', 'whole (named)'], ['overview tour', 'whole (named)'], ['walk me through the whole structure', 'whole (named)'],
+  ['repeat the tour', 'replay (named)'], ['play the tour again', 'replay (named)'], ['show the tour again', 'replay (named)'], ['start the tour again', 'replay (named)'],
+  ['go back to step 2', 'replay from 1 (named)'], ['repeat step two', 'replay from 1 (named)'], ['repeat the last step', 'replay from -1 (named)'], ['show that step again', 'replay from -1 (named)'],
+  // Bare words: the tour only right after one (the app checks that)
+  ['again', 'replay'], ['repeat it', 'replay'], ['one more time', 'replay'], ['play it again', 'replay'], ['from the beginning', 'replay'], ['start over', 'replay'],
+  ['give more tour of same', 'more (named)'], ['more of the tour', 'more (named)'], ['give me more steps', 'more (named)'], ['continue the tour', 'more (named)'], ['next part of the tour', 'more (named)'], ['a longer tour', 'more (named)'],
+  ['more', 'more'], ['tell me more', 'more'], ['continue', 'more'], ['keep going', 'more'], ['what else', 'more'],
+]) check(`"${text}" -> ${want}`, show(A.parseTourAsk(text)) === want, show(A.parseTourAsk(text)));
+// Questions and other requests stay what they were: a tour of named parts goes to the AI, "play the tour" is the plain command
+for (const text of ['tour of the heme pocket', 'give me a tour', 'play the tour', 'tell me more about the heme', 'what else does it bind?', 'more transparent', 'next', 'repeat after me', 'again, what is the heme?'])
+  check(`"${text}" is not a tour follow-up`, A.parseTourAsk(text) === null, show(A.parseTourAsk(text)));
+check('a tour that starts at a step says so', A.describeAction({ kind: 'tour', play: true, from: 3 }) === 'Tour from step 4');
 
 console.log('== Receipts');
 check('describe a shape', A.describeAction({ kind: 'shape', shape: 'surface' }) === 'Shape: surface');
