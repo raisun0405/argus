@@ -92,7 +92,7 @@ const ShareButton: React.FC<ShareButtonProps> = ({ getLink, disabledReason }) =>
             value={manualLink}
             onFocus={e => e.currentTarget.select()}
             aria-label="Link to this view"
-            className="w-full px-2 py-1.5 rounded-md border border-line bg-input text-[11px] text-ink focus:outline-none focus:border-brand/40"
+            className="w-full px-2 py-1.5 rounded-md border border-line bg-input text-[11px] text-ink focus:outline-none focus:border-ink-dim"
           />
         </div>
       )}

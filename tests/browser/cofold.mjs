@@ -140,6 +140,9 @@ try {
     check('chat shows the request as a user turn', userMsg >= 0);
     const phase = await waitFor(`/Boltz-2 is predicting Benzamidine with Beta-trypsin… \\d+ s/.test(document.body.textContent)`, 15000);
     check('status counts the seconds while Boltz-2 runs', phase >= 0);
+    // A screen reader hears the step once, not every tick of the clock
+    const spoken = await ev(`document.querySelector('[data-chat-loader] .sr-only')?.textContent ?? null`);
+    check('...a screen reader is told the step without the ticking clock', spoken === 'Boltz-2 is predicting Benzamidine with Beta-trypsin…' && await ev(`!!document.querySelector('[data-chat-loader] p[aria-hidden="true"]')`), JSON.stringify(spoken));
     check('card arrives', (await waitFor(`!!(${card})`, 30000)) >= 0);
     check('request: PDB 3PTB chain A, BEN by code (+SMILES), calcium kept', posted?.source?.kind === 'pdb' && posted.source.pdbId === '3PTB' && posted.source.chains.join() === 'A'
       && posted.ligand?.ccd === 'BEN' && Boolean(posted.ligand?.smiles) && posted.cofactors?.join() === 'CA', JSON.stringify(posted).slice(0, 200));
@@ -150,6 +153,15 @@ try {
     check('card: crystal pose 0.1 Å, 11 of 11 contacts', /Crystal pose \(3PTB, grey\): 0\.\d Å away · 11 of 11 contacts shared/.test(text), text.match(/Crystal pose[^·]*·[^H]*/)?.[0]);
     check('card: held by S1 residues incl. Asp189', /Held by.*Asp189/.test(text));
     check('card: template and kept calcium noted', /Protein shaped by 3PTB · kept Calcium/.test(text));
+    // What a score means: a press on its name, for touch and keyboard alike (a title reached only a mouse)
+    const poseTerm = `[...(${card}).querySelectorAll('button[aria-expanded]')].find(b => b.textContent === 'Pose')`;
+    await click(poseTerm);
+    await sleep(200);
+    check('card: pressing "Pose" shows what it means', (await ev(`(${poseTerm}).getAttribute('aria-expanded')`)) === 'true' && /confidence in the protein-ligand interface/.test(await ev(`(${card}).querySelector('[data-explanation]')?.textContent ?? ''`)));
+    await click(poseTerm);
+    await sleep(200);
+    check('...and again hides it', (await ev(`(${poseTerm}).getAttribute('aria-expanded')`)) === 'false' && !(await ev(`!!(${card}).querySelector('[data-explanation]')`)));
+    check('card: no score explains itself only in a title any more', !(await ev(`!!(${card}).querySelector('div[title], p[title], span[title]')`)));
     check('viewer shows the complex: badge Boltz-2', (await waitFor(`${badge} === 'Boltz-2'`, 10000)) >= 0, await ev(badge));
     check('badge tag: Co-folded · pLDDT', await ev(`/Co-folded · pLDDT \\d+/.test(document.body.textContent)`));
     check('opens in element colours with the protein faded', (await waitFor(`document.querySelector('input[aria-label="Structure opacity"]')?.value === '65'`, 5000)) >= 0

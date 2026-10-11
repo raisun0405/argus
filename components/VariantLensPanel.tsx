@@ -208,6 +208,7 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-baseline gap-1.5">
                         <span className="text-xs font-semibold text-ink-strong tracking-tight">{p.gene ?? p.identifier}</span>
+                        {p.proteinName && <span className="sr-only">{p.proteinName}</span>}
                         <a
                           href={`https://alphafold.ebi.ac.uk/entry/${p.accession}`}
                           target="_blank"

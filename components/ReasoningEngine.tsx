@@ -427,6 +427,23 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     if (isTourActiveRef.current) handleStopTour();
   }, [currentAnalysis]);
 
+  // A new answer, result or error is read out by screen readers. The conversation itself isn't a live
+  // region: it changes in place too often (tour steps, checks, receipts), and receipts speak for themselves
+  const [announcement, setAnnouncement] = useState('');
+  const seenMessagesRef = useRef(0);
+  useEffect(() => {
+    const seen = seenMessagesRef.current;
+    seenMessagesRef.current = messages.length;
+    if (messages.length <= seen) return; // Changed in place, or cleared
+    const latest = messages[messages.length - 1];
+    if (latest.role !== 'assistant' || latest.welcome) return;
+    const text = latest.data && !latest.notice ? `Answer: ${latest.data.title}. ${latest.content}` : latest.content;
+    if (!text.trim()) return;
+    // Emptied first, so the same words twice are still read twice
+    setAnnouncement('');
+    requestAnimationFrame(() => setAnnouncement(text.length > 600 ? `${text.slice(0, 600)}…` : text));
+  }, [messages]);
+
   // A held-back answer whose structure is on screen again (from its Open button or otherwise) is an answer like any other
   useEffect(() => {
     const id = currentAnalysis?.pdbId;
@@ -1567,6 +1584,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
             )}
         </div>
       </div>
+
+      {/* What a screen reader is told when an answer arrives */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true" data-chat-announcer>{announcement}</div>
 
       {/* The conversation */}
       <div

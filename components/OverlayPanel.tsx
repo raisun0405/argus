@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Dropdown from './Dropdown';
+import { Explanation, Term, useExplain } from './Explain';
 import { Field, Group, Segmented, Switch } from './workspace/InspectorSection';
 import { DISTANCE_GRADIENT, PAIR_COLORS, distanceColor, sameProteinEntries, type OverlayResult, type SameProteinEntry } from '../services/overlayService';
 import { readableName } from '../services/structureModel';
@@ -124,7 +125,7 @@ export const OverlayPicker: React.FC<OverlayPickerProps> = ({ accession, choices
           aria-label="PDB ID of the structure to lay over"
           spellCheck={false}
           autoComplete="off"
-          className="min-w-0 flex-1 px-2.5 py-1.5 touch:py-2 bg-input border border-line rounded-md text-xs text-ink uppercase placeholder:normal-case placeholder:text-ink-dim caret-brand-fg hover:border-line-2 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand/60 transition-colors"
+          className="min-w-0 flex-1 px-2.5 py-1.5 touch:py-2 bg-input border border-line rounded-md text-xs text-ink uppercase placeholder:normal-case placeholder:text-ink-dim caret-brand-fg hover:border-line-2 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-ink-dim transition-colors"
         />
         <button
           type="submit"
@@ -157,14 +158,19 @@ export const OverlayMenu: React.FC<OverlayPickerProps & { sourceLabel: string; i
   </div>
 );
 
-const Stat = ({ label, value, detail, hint }: { label: string; value: string; detail: string; hint: string }) => (
-  <div className="grid grid-cols-[56px_1fr] items-baseline gap-2" title={hint}>
-    <span className="text-[11px] font-medium text-ink-muted">{label}</span>
-    <span className="min-w-0 truncate text-[11px] text-ink-muted">
-      <span className="text-xs font-semibold tabular-nums text-ink-strong">{value}</span> {detail}
-    </span>
-  </div>
-);
+// A figure with its name, whose meaning shows when the name is pressed
+const Stat = ({ label, value, detail, hint }: { label: string; value: string; detail: string; hint: string }) => {
+  const explain = useExplain();
+  return (
+    <div className="grid grid-cols-[56px_1fr] items-baseline gap-2">
+      <Term {...explain.term('hint')} className="text-[11px] font-medium text-ink-muted">{label}</Term>
+      <span className="min-w-0 truncate text-[11px] text-ink-muted">
+        <span className="text-xs font-semibold tabular-nums text-ink-strong">{value}</span> {detail}
+      </span>
+      {explain.open && <Explanation id={explain.id('hint')} className="col-span-2 mb-1">{hint}</Explanation>}
+    </div>
+  );
+};
 
 interface OverlayPanelProps {
   state: OverlayState;

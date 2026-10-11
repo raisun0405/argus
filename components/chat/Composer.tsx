@@ -76,12 +76,14 @@ const Composer: React.FC<ComposerProps> = ({ value, onChange, onSubmit, busy, wo
 
   const box = (
     <div
-      className={`relative flex flex-col transition-colors ${
+      // The border follows the browser's own focus (focus-within), which never misses an event, in the
+      // dim text colour: 3:1 or more against the page in every theme
+      className={`relative flex flex-col transition-colors border border-line focus-within:border-ink-dim ${
         look.composer === 'halo'
-          ? `rounded-2xl bg-surface/55 backdrop-blur-xl border ${focused ? 'border-ink-dim/70' : 'border-line'}`
+          ? 'rounded-2xl bg-surface/55 backdrop-blur-xl'
           : look.composer === 'metal'
-            ? `rounded-2xl bg-elevated border ${focused ? 'border-ink-dim/70' : 'border-line'} shadow-float`
-            : `rounded-2xl bg-input/90 backdrop-blur border ${focused ? 'border-ink-dim/70' : 'border-line hover:border-line-2'} shadow-float`
+            ? 'rounded-2xl bg-elevated shadow-float'
+            : 'rounded-2xl bg-input/90 backdrop-blur [&:hover:not(:focus-within)]:border-line-2 shadow-float'
       }`}
     >
       {/* The halo: a warm-to-violet glow along the bottom rim, stronger while focused */}

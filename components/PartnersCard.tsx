@@ -56,12 +56,14 @@ const PartnersCard: React.FC<PartnersCardProps> = ({ result, origin, currentStru
                     <div className="min-w-0">
                       <span className="text-[13px] font-semibold text-ink-strong leading-snug">{partner.name}</span>
                       {partner.description && (
+                        // Shortened to the eye; a screen reader gets all of it (the pointer, its tooltip)
                         <span className="ml-1.5 text-[11px] text-ink-muted leading-snug" title={partner.description}>
-                          {partner.description.length > 48 ? `${partner.description.slice(0, 46)}…` : partner.description}
+                          <span aria-hidden="true">{partner.description.length > 48 ? `${partner.description.slice(0, 46)}…` : partner.description}</span>
+                          <span className="sr-only">{partner.description}</span>
                         </span>
                       )}
                     </div>
-                    <span className="flex-shrink-0 mt-0.5 text-[11px] font-semibold tabular-nums text-ink" title="STRING combined confidence (0-1)">
+                    <span className="flex-shrink-0 mt-0.5 text-[11px] font-semibold tabular-nums text-ink">
                       {partner.score.toFixed(3)}
                     </span>
                   </div>
@@ -113,7 +115,7 @@ const PartnersCard: React.FC<PartnersCardProps> = ({ result, origin, currentStru
       {/* Footer */}
       <div className="px-4 py-2.5 border-t border-line bg-surface flex items-center justify-between gap-3">
         <p className="text-[10px] leading-snug text-ink-dim">
-          Confidence combines experiments, curated databases, co-expression and literature. Data:{' '}
+          Confidence, from 0 to 1, combines experiments, curated databases, co-expression and literature. Data:{' '}
           <a href={result.stringUrl} target="_blank" rel="noreferrer" className="underline decoration-line-2 hover:text-brand-text">STRING</a>
           {' '}(CC BY 4.0) · complexes from RCSB PDB.
         </p>

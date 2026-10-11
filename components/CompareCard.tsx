@@ -1,5 +1,6 @@
 import React from 'react';
 import { CompareIcon } from './icons';
+import { Explanation, Term, useExplain } from './Explain';
 import type { CofoldResult, ProteinAnalysis } from '../types';
 import { COMPARE_COLORS, affinityGap, foldText, formatIc50, pIc50, poseConfidence, residueLabel, siteRelation } from '../services/cofoldService';
 
@@ -112,6 +113,7 @@ const CompareCard: React.FC<CompareCardProps> = ({ result, origin, currentStruct
   }
 
   const fingerprint = c.fingerprint.slice(0, MAX_FINGERPRINT_ROWS);
+  const explain = useExplain(); // What each row means, a press on its name away
   const cell = (mine: string[], theirs: string[]) =>
     mine.length === 0
       ? <span className="text-ink-dim">—</span>
@@ -158,11 +160,22 @@ const CompareCard: React.FC<CompareCardProps> = ({ result, origin, currentStruct
         </thead>
         <tbody className="divide-y divide-line">
           {rows.map(row => (
-            <tr key={row.label} title={row.title}>
-              <th scope="row" className="pl-4 pr-1 py-1.5 text-left text-[10px] font-semibold text-ink-muted uppercase tracking-[0.1em]">{row.label}</th>
-              <td className={`px-2 py-1.5 break-words ${tone('a', row.winner)}`}>{row.a}</td>
-              <td className={`px-2 py-1.5 break-words ${tone('b', row.winner)}`}>{row.b}</td>
-            </tr>
+            <React.Fragment key={row.label}>
+              <tr>
+                <th scope="row" className="pl-4 pr-1 py-1.5 text-left text-[10px] font-semibold text-ink-muted uppercase tracking-[0.1em]">
+                  <Term {...explain.term(row.label)}>{row.label}</Term>
+                </th>
+                <td className={`px-2 py-1.5 break-words ${tone('a', row.winner)}`}>{row.a}</td>
+                <td className={`px-2 py-1.5 break-words ${tone('b', row.winner)}`}>{row.b}</td>
+              </tr>
+              {explain.open === row.label && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-2 bg-surface/40">
+                    <Explanation id={explain.id(row.label)}>{row.title}</Explanation>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
           ))}
         </tbody>
       </table>
@@ -177,9 +190,14 @@ const CompareCard: React.FC<CompareCardProps> = ({ result, origin, currentStruct
         </p>
         {fingerprint.length > 0 && (
           <div>
-            <p className="font-semibold text-ink-strong mb-1" title="Hydrogen bonds, salt bridges, stacking, halogen bonds and metal contacts each molecule makes, by residue. Bold: made by one molecule only.">
-              Interactions
+            <p className="font-semibold text-ink-strong mb-1">
+              <Term {...explain.term('interactions')}>Interactions</Term>
             </p>
+            {explain.open === 'interactions' && (
+              <Explanation id={explain.id('interactions')} className="mb-1.5">
+                The hydrogen bonds, salt bridges, stacking, halogen bonds and metal contacts each molecule makes, by residue. Bold: made by one molecule only.
+              </Explanation>
+            )}
             <table className="w-full text-[10.5px]">
               <tbody>
                 {fingerprint.map(f => (

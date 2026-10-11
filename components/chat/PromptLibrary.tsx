@@ -89,7 +89,7 @@ export const PromptLibraryPanel: React.FC<PromptLibraryPanelProps> = ({ subject,
           onChange={e => setQuery(e.target.value)}
           placeholder="Search prompts"
           aria-label="Search prompts"
-          className="w-full h-8 px-2.5 rounded-lg bg-input border border-line text-[12px] text-ink placeholder:text-ink-dim focus:outline-none focus:border-line-2"
+          className="w-full h-8 px-2.5 rounded-lg bg-input border border-line text-[12px] text-ink placeholder:text-ink-dim focus:outline-none focus:border-ink-dim"
         />
         {!q && (
           <div className="mt-2 flex flex-wrap gap-1" role="tablist" aria-label="Prompt categories">

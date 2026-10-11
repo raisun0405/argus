@@ -32,7 +32,7 @@ const chainsWithSite = (setup: CofoldSetup, chains: string[], siteChains: string
 
 const MAX_PICKS = 6;
 
-const INPUT = 'w-full px-2.5 py-1.5 touch:py-2.5 bg-input border border-line rounded-md text-xs text-ink placeholder:text-ink-dim caret-brand-fg hover:border-line-2 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand/60 transition-colors';
+const INPUT = 'w-full px-2.5 py-1.5 touch:py-2.5 bg-input border border-line rounded-md text-xs text-ink placeholder:text-ink-dim caret-brand-fg hover:border-line-2 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-ink-dim transition-colors';
 
 /**
  * Co-fold form under the toolbar: the molecule (typed, or one of the structure's ligands), the chains

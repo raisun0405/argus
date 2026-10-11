@@ -1,10 +1,13 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 // --- PHONE SHEET ---
 // A phone has no room beside the canvas for the inspector or the tools, so they rise from the bottom
 // over it, the way maps and photo apps show their panels: half the height at first, with the
 // structure still in view above (the canvas shrinks to the space left, so the molecule stays whole),
 // dragged up for more room, or down to put it away. A tap on the handle switches between the two.
+// For the keyboard and screen readers it is a non-modal dialog (WAI-ARIA's dialog pattern, minus the
+// trap, since the structure above stays usable): focus moves into it when it opens, Escape closes it
+// (a tool's menu first goes back to the list of tools), and focus returns to what opened it.
 
 export type SheetSize = 'half' | 'full';
 export const SHEET_HEIGHT: Record<SheetSize, number> = { half: 56, full: 92 }; // % of the space under the sequence
@@ -24,6 +27,23 @@ const PhoneSheet: React.FC<PhoneSheetProps> = ({ title, label, size, onSize, onC
   const [dragged, setDragged] = useState<number | null>(null); // Height (%) while a finger moves it
   const drag = useRef<{ y: number; from: number; moved: boolean; space: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Focus moves in when the sheet opens (not out of a text field the user is typing in: a chat
+  // command can open a tool), and goes back to what opened it when the sheet closes. The opener is
+  // what had focus outside the sheet (React's development mode runs this twice, the second time with
+  // the focus already inside)
+  const openerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (active && !rootRef.current?.contains(active)) openerRef.current = active;
+    const typing = Boolean(openerRef.current?.closest('input, textarea, [contenteditable="true"]'));
+    if (!typing) rootRef.current?.focus({ preventScroll: true });
+    return () => {
+      const opener = openerRef.current;
+      const lost = !document.activeElement || document.activeElement === document.body;
+      if (!typing && lost && opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || (e.target as Element).closest('button')) return; // Its buttons stay buttons
@@ -63,8 +83,16 @@ const PhoneSheet: React.FC<PhoneSheetProps> = ({ title, label, size, onSize, onC
       }}
       role="dialog"
       aria-label={label ?? title}
+      tabIndex={-1}
+      // Escape closes the sheet; with a tool's menu open the viewer's own Escape takes it back to the
+      // list of tools first. A control inside that uses Escape itself (an open dropdown) marks it handled
+      onKeyDown={e => {
+        if (e.key !== 'Escape' || e.defaultPrevented || onBack) return;
+        e.preventDefault();
+        onClose();
+      }}
       data-phone-sheet={size}
-      className="absolute inset-x-0 bottom-0 z-40 flex flex-col bg-surface border-t border-line-2 rounded-t-2xl shadow-overlay animate-argus-fade-in"
+      className="absolute inset-x-0 bottom-0 z-40 flex flex-col bg-surface border-t border-line-2 rounded-t-2xl shadow-overlay animate-argus-fade-in focus:outline-none"
       style={{ height: `${dragged ?? SHEET_HEIGHT[size]}%`, transition: dragged === null ? 'height 240ms cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none' }}
     >
       {/* The handle and the title bar are one grip */}

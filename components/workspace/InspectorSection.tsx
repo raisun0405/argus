@@ -1,4 +1,5 @@
 import React from 'react';
+import { Explanation, Term, useExplain } from '../Explain';
 
 // --- INSPECTOR SECTION ---
 // One collapsible block in the right-hand column. The controls are a single stack of these rather
@@ -83,24 +84,34 @@ export const IconButton: React.FC<{ onClick: () => void; label: string; children
   </button>
 );
 
-/** A group of controls under a quiet name ("Shape", "Show in 3D"). */
-export const Group: React.FC<{ label: string; hint?: string; trailing?: React.ReactNode; children: React.ReactNode }> = ({ label, hint, trailing, children }) => (
-  <div title={hint}>
-    <div className="flex items-center justify-between mb-1.5">
-      <span className="text-[11px] touch:text-[12.5px] font-medium text-ink-muted">{label}</span>
-      {trailing}
+const LABEL = 'text-[11px] touch:text-[12.5px] font-medium text-ink-muted';
+
+/** A group of controls under a quiet name ("Shape", "Show in 3D"); with a hint, the name shows it when pressed. */
+export const Group: React.FC<{ label: string; hint?: string; trailing?: React.ReactNode; children: React.ReactNode }> = ({ label, hint, trailing, children }) => {
+  const explain = useExplain();
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        {hint ? <Term {...explain.term('hint')} className={LABEL}>{label}</Term> : <span className={LABEL}>{label}</span>}
+        {trailing}
+      </div>
+      {hint && explain.open && <Explanation id={explain.id('hint')} className="-mt-0.5 mb-2">{hint}</Explanation>}
+      {children}
     </div>
-    {children}
-  </div>
-);
+  );
+};
 
 /** A labelled row: the name in a fixed column on the left, the control filling the rest. */
-export const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
-  <div className="grid grid-cols-[56px_1fr] touch:grid-cols-[64px_1fr] items-center gap-2 min-h-[30px] touch:min-h-[40px]" title={hint}>
-    <span className="text-[11px] touch:text-[12.5px] font-medium text-ink-muted">{label}</span>
-    <div className="min-w-0">{children}</div>
-  </div>
-);
+export const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => {
+  const explain = useExplain();
+  return (
+    <div className="grid grid-cols-[56px_1fr] touch:grid-cols-[64px_1fr] items-center gap-2 min-h-[30px] touch:min-h-[40px]">
+      {hint ? <Term {...explain.term('hint')} className={LABEL}>{label}</Term> : <span className={LABEL}>{label}</span>}
+      <div className="min-w-0">{children}</div>
+      {hint && explain.open && <Explanation id={explain.id('hint')} className="col-span-2 -mt-1 mb-1">{hint}</Explanation>}
+    </div>
+  );
+};
 
 /**
  * Segmented picker — every option visible, one click to change. With icons the options become
@@ -162,7 +173,7 @@ export const NumberField: React.FC<{ value: number; min: number; max: number; un
     setDraft(null);
   };
   return (
-    <label className="flex-shrink-0 flex items-center gap-0.5 h-6 w-[50px] touch:h-9 touch:w-[66px] px-1.5 rounded-md bg-input border border-line focus-within:border-line-2 hover:border-line-2 transition-colors">
+    <label className="flex-shrink-0 flex items-center gap-0.5 h-6 w-[50px] touch:h-9 touch:w-[66px] px-1.5 rounded-md bg-input border border-line focus-within:border-ink-dim hover:border-line-2 transition-colors">
       <input
         value={draft ?? String(value)}
         inputMode="numeric"

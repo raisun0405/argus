@@ -112,7 +112,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       ink: '#E0E0E0',
       inkStrong: '#FFFFFF',
       inkMuted: '#888888',
-      inkDim: '#555555',
+      inkDim: '#7E7E7E', // Was #555555 (2.5:1); lifted to pass 4.5:1 on every surface, the one change to the original look
       brand: '#C43036',
       brandDark: '#A82A2F',
       brandFg: '#C43036',

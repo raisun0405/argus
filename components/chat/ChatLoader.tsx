@@ -56,6 +56,10 @@ interface ChatLoaderProps {
   look: ChatLook;
 }
 
+// What a screen reader is told: the step without its clock ("…with Beta-trypsin… 12 s" counts up once a
+// second, and a live region would read every tick). The shown line keeps the clock and is hidden from it
+const Spoken: React.FC<{ phase: string }> = ({ phase }) => <span className="sr-only">{phase.replace(/\s\d+ s(?=\W|$)/, '')}</span>;
+
 /**
  * What the chat shows while it waits: an orb (the answer's or the tool's) and the current step as a
  * shimmering line. Tool runs also get a sliding strip, since they take tens of seconds.
@@ -67,10 +71,11 @@ const ChatLoader: React.FC<ChatLoaderProps> = ({ kind, phase, look }) => {
   if (look.loader === 'pill') {
     return (
       <div role="status" aria-live="polite" aria-label={label} className="flex justify-start argus-rise" data-chat-loader>
+        <Spoken phase={phase} />
         <div className="inline-flex max-w-full items-center gap-3 pl-1.5 pr-5 py-1.5 rounded-full bg-surface/80 backdrop-blur-md border border-line shadow-float">
           <Orb kind={orb} size={32} speed={look.orbSpeed} />
           <div className="min-w-0">
-            <p className="text-chat-aside font-medium leading-snug argus-shimmer break-words"><PhaseText phase={phase} /></p>
+            <p aria-hidden="true" className="text-chat-aside font-medium leading-snug argus-shimmer break-words"><PhaseText phase={phase} /></p>
             {kind === 'work' && <ProgressStrip className="mt-1.5 w-36" />}
           </div>
         </div>
@@ -81,9 +86,10 @@ const ChatLoader: React.FC<ChatLoaderProps> = ({ kind, phase, look }) => {
   if (look.loader === 'avatar') {
     return (
       <div role="status" aria-live="polite" aria-label={label} className="flex items-start gap-3 argus-rise" data-chat-loader>
+        <Spoken phase={phase} />
         <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center"><Orb kind={orb} size={32} speed={look.orbSpeed} /></div>
         <div className="min-w-0 pt-1.5">
-          <p className="text-chat-aside font-medium leading-snug argus-shimmer break-words"><PhaseText phase={phase} /></p>
+          <p aria-hidden="true" className="text-chat-aside font-medium leading-snug argus-shimmer break-words"><PhaseText phase={phase} /></p>
           {kind === 'work' && <ProgressStrip className="mt-2 w-44" />}
         </div>
       </div>
@@ -92,9 +98,10 @@ const ChatLoader: React.FC<ChatLoaderProps> = ({ kind, phase, look }) => {
 
   return (
     <div role="status" aria-live="polite" aria-label={label} className="flex items-start gap-2.5 argus-rise" data-chat-loader>
+      <Spoken phase={phase} />
       <div className="flex-shrink-0 w-5 h-5 mt-px flex items-center justify-center"><Orb kind={orb} size={20} speed={look.orbSpeed} /></div>
       <div className="min-w-0">
-        <p className="text-chat-aside font-medium leading-5 argus-shimmer break-words"><PhaseText phase={phase} /></p>
+        <p aria-hidden="true" className="text-chat-aside font-medium leading-5 argus-shimmer break-words"><PhaseText phase={phase} /></p>
         {kind === 'work' && <ProgressStrip className="mt-1.5 w-40" />}
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { MoleculeIcon } from './icons';
+import { Explanation, Term, useExplain } from './Explain';
 import type { CofoldResult, ProteinAnalysis } from '../types';
 import { contactLabel, formatIc50, pIc50, poseConfidence } from '../services/cofoldService';
 import { LIGAND_NAMES } from '../services/alphafillService';
@@ -19,6 +20,13 @@ const CONFIDENCE = {
   high: { label: 'High', tone: 'text-good' },
   medium: { label: 'Medium', tone: 'text-warn' },
   low: { label: 'Low', tone: 'text-bad' },
+} as const;
+
+// What each score means, a press away under the scores
+const SCORE_HINTS = {
+  pose: 'How sure Boltz-2 is about where and how the molecule sits: its confidence in the protein-ligand interface (ipTM, 0 to 1). Above 0.8 is usually right; below 0.6 often wrong.',
+  affinity: "Boltz-2's estimate of the IC50, the concentration that halves the protein's activity (lower binds tighter). Useful for comparing molecules; not a measurement.",
+  binder: "Boltz-2's probability that this molecule is a real binder rather than an inactive look-alike, as in screening for hits.",
 } as const;
 
 /**
@@ -50,6 +58,8 @@ const CofoldCard: React.FC<CofoldCardProps> = ({ result, origin, currentStructur
   const hydrophobicCount = result.interactions?.find(x => x.type === 'hydrophobic')?.partners.length ?? 0;
   const kept = result.cofactors.map(c => LIGAND_NAMES[c.resn] ?? c.resn);
   const keptSummary = [...new Set(kept)].map(name => `${name}${kept.filter(k => k === name).length > 1 ? ` ×${kept.filter(k => k === name).length}` : ''}`).join(', ');
+  const explain = useExplain();
+  const scoreHint = explain.open === 'pose' || explain.open === 'affinity' || explain.open === 'binder' ? explain.open : null;
 
   return (
     <div className="mt-4 mb-1 bg-canvas rounded-xl border border-line shadow-quiz overflow-hidden">
@@ -69,50 +79,62 @@ const CofoldCard: React.FC<CofoldCardProps> = ({ result, origin, currentStructur
 
       {/* Scores */}
       <div className="grid grid-cols-3 divide-x divide-line border-b border-line">
-        <div className="px-3 py-2.5" title="How sure Boltz-2 is about where and how the molecule sits: its confidence in the protein-ligand interface (ipTM, 0-1). Above 0.8 is usually right; below 0.6 often wrong.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Pose</p>
+        <div className="px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]"><Term {...explain.term('pose')}>Pose</Term></p>
           <p className={`mt-0.5 text-sm font-semibold ${confidence ? CONFIDENCE[confidence].tone : 'text-ink'}`}>{confidence ? CONFIDENCE[confidence].label : '—'}</p>
           <p className="text-[10px] text-ink-dim tabular-nums">{iptm !== null ? `ipTM ${iptm.toFixed(2)}` : 'no score'}</p>
         </div>
-        <div className="px-3 py-2.5" title="Boltz-2's estimate of the IC50, the concentration that halves the protein's activity (lower binds tighter). Useful for comparing molecules; not a measurement.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Affinity</p>
+        <div className="px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]"><Term {...explain.term('affinity')}>Affinity</Term></p>
           <p className="mt-0.5 text-sm font-semibold text-ink-strong tabular-nums">{affinity ? `≈ ${formatIc50(affinity.log10Ic50)}` : '—'}</p>
           <p className="text-[10px] text-ink-dim tabular-nums">{affinity ? `IC50 · pIC50 ${pIc50(affinity.log10Ic50).toFixed(1)}` : 'not predicted'}</p>
         </div>
-        <div className="px-3 py-2.5" title="Boltz-2's probability that this molecule is a real binder rather than an inactive look-alike, as in screening for hits.">
-          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Binder</p>
+        <div className="px-3 py-2.5">
+          <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]"><Term {...explain.term('binder')}>Binder</Term></p>
           <p className="mt-0.5 text-sm font-semibold text-ink-strong tabular-nums">{affinity ? `${Math.round(affinity.binderProbability * 100)}%` : '—'}</p>
           <p className="text-[10px] text-ink-dim">probability</p>
         </div>
       </div>
+      {scoreHint && (
+        <div className="px-4 py-2 border-b border-line bg-surface/40">
+          <Explanation id={explain.id(scoreHint)}>{SCORE_HINTS[scoreHint]}</Explanation>
+        </div>
+      )}
 
       {/* Details */}
       <div className="px-4 py-2.5 space-y-1.5 text-[11px] leading-snug">
         {reference && (
-          <p className="text-ink">
-            <span className="font-semibold text-ink-strong">Crystal pose</span>
-            <span className="text-ink-muted"> ({reference.from}, grey): </span>
-            <span className="tabular-nums">{reference.centroidDistance.toFixed(1)} Å away</span>
-            {reference.crystalContacts > 0 && (
-              <span className="text-ink-muted tabular-nums"> · {reference.sharedContacts} of {reference.crystalContacts} contacts shared</span>
+          <>
+            <p className="text-ink">
+              <span className="font-semibold text-ink-strong">Crystal pose</span>
+              <span className="text-ink-muted"> ({reference.from}, grey): </span>
+              <span className="tabular-nums">{reference.centroidDistance.toFixed(1)} Å away</span>
+              {reference.crystalContacts > 0 && (
+                <span className="text-ink-muted tabular-nums"> · {reference.sharedContacts} of {reference.crystalContacts} contacts shared</span>
+              )}
+              {reference.interactionsTotal ? (
+                <span className="text-ink-muted tabular-nums">
+                  {' '}· {reference.interactionsShared} of {reference.interactionsTotal} <Term {...explain.term('reproduced')}>interactions reproduced</Term>
+                </span>
+              ) : null}
+            </p>
+            {explain.open === 'reproduced' && (
+              <Explanation id={explain.id('reproduced')}>
+                The hydrogen bonds, salt bridges, stacking, halogen bonds and metal contacts of the crystal ligand that the prediction makes with the same residues.
+              </Explanation>
             )}
-            {reference.interactionsTotal ? (
-              <span
-                className="text-ink-muted tabular-nums"
-                title="Hydrogen bonds, salt bridges, stacking, halogen bonds and metal contacts of the crystal ligand that the prediction makes with the same residues"
-              >
-                {' '}· {reference.interactionsShared} of {reference.interactionsTotal} interactions reproduced
-              </span>
-            ) : null}
-          </p>
+          </>
         )}
         {steering && (
-          <p className="text-ink">
-            <span className="font-semibold text-ink-strong">Steered to</span>{' '}
-            <span className={`${steering.tone} tabular-nums`} title={`Boltz-2 was told to bind the molecule among ${steer!.residues} residues of this site`}>
-              {steering.text}
-            </span>
-          </p>
+          <>
+            <p className="text-ink">
+              <Term {...explain.term('steer')} className="font-semibold text-ink-strong">Steered to</Term>{' '}
+              <span className={`${steering.tone} tabular-nums`}>{steering.text}</span>
+            </p>
+            {explain.open === 'steer' && (
+              <Explanation id={explain.id('steer')}>Boltz-2 was told to bind the molecule among the {steer!.residues} residues of this site.</Explanation>
+            )}
+          </>
         )}
         {specific.length > 0 && (
           <p className="text-ink">

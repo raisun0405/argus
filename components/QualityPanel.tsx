@@ -1,5 +1,6 @@
 import React from 'react';
 import { METRIC_LABELS, formatValue, percentileSets, qualityHeadline, type QualityReport } from '../services/qualityService';
+import { Explanation, Term, useExplain } from './Explain';
 
 export type QualityState =
   | { status: 'loading' }
@@ -23,6 +24,7 @@ const nb = (text: string) => text.replace(/X-ray/g, 'X‑ray');
  * the official validation report gives them.
  */
 const QualityPanel: React.FC<{ state: QualityState; onRetry: () => void }> = ({ state, onRetry }) => {
+  const explain = useExplain(); // What each metric means, a press on its name away
   if (state.status === 'loading') {
     return (
       <div data-quality-panel data-quality-status="loading" className="flex items-center gap-2.5 py-1">
@@ -59,9 +61,10 @@ const QualityPanel: React.FC<{ state: QualityState; onRetry: () => void }> = ({ 
           return (
             <div key={m.key} data-quality-metric={m.key} className="min-w-0">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="min-w-0 truncate text-[11px] touch:text-[13px] font-medium text-ink" title={label.hint}>{label.name}</span>
+                <Term {...explain.term(m.key)} className="min-w-0 truncate text-[11px] touch:text-[13px] font-medium text-ink">{label.name}</Term>
                 <span className="flex-shrink-0 text-[11px] touch:text-[13px] tabular-nums text-ink-strong">{formatValue(m)}</span>
               </div>
+              {explain.open === m.key && <Explanation id={explain.id(m.key)} className="mt-0.5">{label.hint}</Explanation>}
               {m.absolute !== null && (
                 <>
                   <div className="mt-1 flex items-center gap-2">
