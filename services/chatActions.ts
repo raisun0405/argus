@@ -274,6 +274,11 @@ add('save|download|export|capture|grab|snap|take', { t: 'save' });
 add('picture|pictures|image|images|png|photo|photos|pic|pics', { t: 'picture' });
 add('screenshot|screenshots|snapshot|snapshots|screen shot|screen capture|screengrab|screen grab', { t: 'picture', standalone: true });
 
+// After "tour", words that still mean the whole structure ("a tour of this protein", "tour it again"),
+// and the words that end the tour's part of a request ("play the tour and hide waters")
+const TOUR_WHOLE = new Set(['whole', 'entire', 'full', 'complex', 'enzyme', 'again', 'once', 'around', 'through', 'about', 'over']);
+const TOUR_END = new Set(['and', 'then', 'also', 'plus']);
+
 // Words skipped between "select" and the residues it names ("select residue 25", "focus on A:25")
 const SPEC_SKIP = new Set(['on', 'residue', 'residues', 'res', 'at', 'the', 'to', 'number', 'no']);
 // ...and between "overlay" and what to lay over ("overlay it with 1AKE", "superpose the AlphaFold model")
@@ -500,6 +505,14 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
         actions.push({ kind: 'inspector', open: verb !== false });
         break;
       case 'tour':
+        // "A tour of the heme pocket", "tour the pockets": what to cover is named, so the AI writes a
+        // tour of just that. Only a tour of the whole structure is the plain request
+        if (verb !== false) {
+          while (next < tokens.length && !TOUR_END.has(tokens[next])) {
+            if (!TOUR_WHOLE.has(tokens[next]) && TABLE.get(tokens[next])?.t !== 'filler') return null;
+            next++; // "of the whole protein" belongs to the tour ("whole" alone would reset the view)
+          }
+        }
         actions.push({ kind: 'tour', play: verb !== false });
         break;
       case 'save':
@@ -518,3 +531,12 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
   if (pendingNumber !== null || awaiting || clearing || negate || saving || actions.length === 0 || actions.length > 8) return null;
   return actions;
 };
+
+// --- QUESTIONS THAT ASK FOR A TOUR ---
+// "Explain this protein like a journey", "walk me through the active site", "step by step": the
+// answer's tour starts by itself, whether or not the AI also asked for it ("tour:play"). What the
+// tour covers is the AI's, written for the question, so a tour of one site stays on that site.
+const TOUR_ASKED = /\b(?:tours?|journey|walk[ -]?through|(?:walk|take|lead) (?:me|us) (?:through|around|on)|show (?:me|us) around|guide (?:me|us)|guided|step[ -]by[ -]step|story|narrate)\b/i;
+
+/** The question asks to be taken through the structure, so a tour in its answer should play. */
+export const asksForTour = (text: string): boolean => TOUR_ASKED.test(text.replace(/\s+/g, ' '));

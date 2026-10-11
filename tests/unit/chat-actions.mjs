@@ -114,6 +114,11 @@ const COMMANDS = [
   ['light theme', 'theme:paper'],
   ['play the tour', 'tour:play'],
   ['stop the tour', 'tour:stop'],
+  ['give me a tour of this protein', 'tour:play'],
+  ['a tour of the whole structure', 'tour:play'],
+  ['tour it again', 'tour:play'],
+  ['walkthrough', 'tour:play'],
+  ['play the tour and hide the waters', 'tour:play hide:waters'],
   ['hide the inspector', 'inspector:false'],
   ['open the inspector', 'inspector:true'],
 ];
@@ -149,11 +154,41 @@ const QUESTIONS = [
   'compare with 1ake',
   'overlay 1ake and explain the changes',
   'overlay something',
+  // A tour of named parts: the AI writes a tour of just those (a plain "tour" would cover the whole structure)
+  'tour of the heme pocket',
+  'tour the pockets',
+  'play the tour of chain A',
+  'start the tour of the ligands',
+  'walk through the active site',
+  'guided tour of residues 20 to 40',
+  'tour of the highlighted parts',
 ];
 for (const text of QUESTIONS) {
   const got = parse(text);
   check(`"${text}" is a question`, got === null, got === null ? '' : `parsed as ${got}`);
 }
+
+console.log('== Questions that ask for a tour (its answer\'s tour starts by itself)');
+for (const text of [
+  'explain me this protein like a journey',
+  'walk me through the active site',
+  'a walk-through of the binding site',
+  'take me through how it binds oxygen',
+  'lead us through the mechanism',
+  'explain it step by step',
+  'step-by-step explanation of the mechanism',
+  'give me a guided tour of the heme pocket',
+  'tell the story of this enzyme',
+  'show me around',
+  'Tour of only these parts',
+]) check(`"${text}" asks for a tour`, A.asksForTour(text) === true);
+for (const text of [
+  'explain the active site',
+  'what does this protein do',
+  'show me the ligands',
+  'the contour of its surface',
+  'a detour through the literature',
+]) check(`"${text}" does not`, A.asksForTour(text) === false);
 
 console.log('== Receipts');
 check('describe a shape', A.describeAction({ kind: 'shape', shape: 'surface' }) === 'Shape: surface');

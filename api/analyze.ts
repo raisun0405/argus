@@ -79,7 +79,7 @@ REQUIRED fields at top level: pdbId, title, summary, highlights.
 OPTIONAL fields at top level: measurements, tour, quiz, alphafold, actions.
   - alphafold: include ONLY when pdbId is an AlphaFold model (used to look up the correct UniProt accession).
   - measurements: include as [] when not explicitly requested by the user.
-  - tour: include only when the user asks for an explanation / mechanism / tour / "show me". Otherwise OMIT the key entirely.
+  - tour: include only when the user asks for an explanation / mechanism / tour / journey / walkthrough / "show me". Otherwise OMIT the key entirely.
   - quiz: include only when generating an educational question. Otherwise OMIT the key entirely.
   - actions: include only as VIEWER ACTIONS describes. Otherwise OMIT the key entirely.`;
 
@@ -102,10 +102,11 @@ EDUCATIONAL QUIZ MODE:
 - CRITICAL: provide "answerHighlights" — the specific residues/ligands corresponding to the CORRECT answer. The viewer zooms to these when the user answers correctly.
 
 CINEMATIC TOUR MODE:
-- If the user asks for "explanation", "how it works", "mechanism", "show me", or similar, include a "tour" array.
+- If the user asks for "explanation", "how it works", "mechanism", "show me", a "tour" or "journey", to be walked through something, "step by step", or similar, include a "tour" array.
 - The tour should be 2-4 steps.
 - Each step has "text" (1-2 sentences) and "focus" (the residues to zoom into).
-- Step 1: whole active site. Step 2: zoom into a specific residue. Step 3: substrate or next feature.
+- When the user names what the tour covers (a site, a domain, a chain, residues, a ligand, or "these" parts = the current highlights), every step stays within those parts; no step about the rest of the protein.
+- Otherwise: Step 1: whole active site. Step 2: zoom into a specific residue. Step 3: substrate or next feature.
 
 VISUALIZATION CATEGORY RULES (the "category" field):
 - "metal": single-atom ions (Fe, Zn, Mg, Ca, etc.)

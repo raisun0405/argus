@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, TourStep } from '../types';
+import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, TourStep, Quiz } from '../types';
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
 import { FIREWALL_MESSAGE } from '../services/http';
 import QuizCard from './QuizCard';
@@ -18,10 +18,11 @@ import Composer from './chat/Composer';
 import EmptyState from './chat/EmptyState';
 import MarkedParts from './chat/MarkedParts';
 import ActionReceipt from './chat/ActionReceipt';
+import AnswerTour from './chat/AnswerTour';
 import AnswerChecks from './chat/AnswerChecks';
 import ErrorBoundary, { MessageCrash } from './ErrorBoundary';
 import TweakPanel from './chat/TweakPanel';
-import { actionDone, actionFailed, actionFromId, actionPlanned, parseChatCommand, type ActionResult, type ChatAction } from '../services/chatActions';
+import { actionDone, actionFailed, actionFromId, actionPlanned, asksForTour, parseChatCommand, type ActionResult, type ChatAction } from '../services/chatActions';
 import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
@@ -91,9 +92,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   const [isPaused, setIsPaused] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false); // Loading state for tour audio
   const [tourStep, setTourStep] = useState<{ index: number; count: number } | null>(null);
-  
+  const [playingTour, setPlayingTour] = useState<TourStep[] | null>(null); // Whose tour is playing: the answer with these steps
+
   // Refs
   const isTourActiveRef = useRef(false);
+  const playingTourRef = useRef<TourStep[] | null>(null);
   const tourRunRef = useRef(0); // Bumped on every Play/Stop, so a stopped tour's loop can't carry on
   const isPausedRef = useRef(false); // Read by the tour loop's timed waits
   const recognitionRef = useRef<any>(null);
@@ -267,6 +270,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     setIsPaused(false);
     isPausedRef.current = false;
     isTourActiveRef.current = true;
+    playingTourRef.current = steps;
+    setPlayingTour(steps);
 
     try {
         // --- RELAY RACE BUFFERING STRATEGY ---
@@ -353,6 +358,13 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       setIsTourActive(false);
       setIsPaused(false);
       setIsBuffering(false);
+      // The answer whose tour this was shows its quiz now, and keeps it shown if the tour is played again
+      const ended = playingTourRef.current;
+      playingTourRef.current = null;
+      setPlayingTour(null);
+      if (ended) setMessages(prev => prev.some(m => m.quizAfterTour && m.data?.tour === ended)
+        ? prev.map(m => (m.quizAfterTour && m.data?.tour === ended ? { ...m, quizAfterTour: false } : m))
+        : prev);
 
       if (activeSourceRef.current) {
           try { activeSourceRef.current.stop(); } catch(e) {}
@@ -609,7 +621,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       // What the answer changes in the viewer runs once its structure is on screen; the message
       // lists those changes as planned, then as they actually turned out
       const planned = (analysis.actions ?? []).map(actionFromId).filter((a): a is ChatAction => a !== null);
-      if (options.playTour && analysis.tour?.length && !planned.some(a => a.kind === 'tour')) planned.push({ kind: 'tour', play: true });
+      // A question that asks for a tour ("explain it like a journey", "walk me through...") gets it
+      // played, even when the AI wrote one without asking for it to start
+      if ((options.playTour || asksForTour(userQuery)) && analysis.tour?.length && !planned.some(a => a.kind === 'tour')) planned.push({ kind: 'tour', play: true });
+      const tourStarts = Boolean(analysis.tour?.length) && planned.some(a => a.kind === 'tour' && a.play);
       const id = ++messageSeqRef.current;
       setMessages(prev => [
         ...prev,
@@ -620,6 +635,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           data: analysis,
           ...(checks ? { checks } : {}),
           ...(planned.length ? { actionResults: planned.map(actionPlanned) } : {}),
+          ...(tourStarts && analysis.quiz ? { quizAfterTour: true } : {}),
         }
       ]);
       onAnalysisComplete(analysis);
@@ -1062,6 +1078,53 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     processQuery(q);
   };
 
+  // An answer's tour: whether it is the one playing, or about to start by itself
+  const tourOf = (msg: Message) => {
+    const steps = msg.data?.tour?.length ? msg.data.tour : null;
+    const playing = Boolean(steps) && isTourActive && playingTour === steps;
+    const starting = Boolean(msg.actionResults?.some(r => r.action.kind === 'tour' && r.action.play && r.pending));
+    return { playing, starting, quizWaits: Boolean(msg.quizAfterTour) && (playing || starting) };
+  };
+  // Another answer's tour gives way to this one
+  const playAnswerTour = (steps: TourStep[]) => {
+    if (isTourActiveRef.current) handleStopTour();
+    void handlePlayTour(steps);
+  };
+  const answerTour = (msg: Message, pdbId: string, steps: TourStep[]) => {
+    const tour = tourOf(msg);
+    return (
+      <AnswerTour
+        steps={steps.length}
+        live={pdbId === currentAnalysis?.pdbId}
+        disabled={isLoading || tour.starting}
+        playing={tour.playing ? (tourStep ?? { index: -1, count: steps.length }) : null}
+        paused={isPaused}
+        onPlay={() => playAnswerTour(steps)}
+        onPause={handlePauseTour}
+        onStop={handleStopTour}
+      />
+    );
+  };
+  // The quiz of an answer whose tour started by itself waits for the tour: the question comes at the
+  // end of the journey, and answering it doesn't pull the camera away mid-tour. It stays mounted
+  // while it waits, so nothing picked in it is lost
+  const answerQuiz = (msg: Message, data: ProteinAnalysis, quiz: Quiz) => {
+    const waits = tourOf(msg).quizWaits;
+    return (
+      <>
+        {waits && <p className="mt-3 text-[11px] text-ink-dim" data-quiz-waits>A quick check follows the tour.</p>}
+        <div hidden={waits}>
+          <QuizCard
+            quiz={quiz}
+            onCorrectAnswer={() => {
+              if (quiz.answerHighlights) handleQuizSuccess(quiz.answerHighlights, data);
+            }}
+          />
+        </div>
+      </>
+    );
+  };
+
   const answerLabel = (msg: Message) => (msg.shared ? 'Shared view' : msg.compare ? 'Comparison' : msg.cofold ? 'Co-folded complex' : 'Answer');
   const structureTag = (pdbId: string) => (/^ESM-/i.test(pdbId) ? 'ESMFold' : isCofoldId(pdbId) ? 'Boltz-2' : pdbId);
 
@@ -1105,6 +1168,9 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         </p>
       )}
 
+      {/* The answer's tour, played from here (it starts by itself when the question asked for one) */}
+      {msg.data?.tour && msg.data.tour.length > 0 && answerTour(msg, msg.data.pdbId, msg.data.tour)}
+
       {/* The parts the answer marks in 3D: named, and a click away (only while that structure is on screen) */}
       {msg.data && shouldShowHeader(msg, idx) && msg.data.highlights.length > 0 && (
         <MarkedParts
@@ -1117,14 +1183,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       {/* What the app checked in the answer before showing it, and what it fixed first */}
       {msg.checks && <AnswerChecks checks={msg.checks} />}
 
-      {msg.data?.quiz && (
-        <QuizCard
-          quiz={msg.data.quiz}
-          onCorrectAnswer={() => {
-            if (msg.data && msg.data.quiz && msg.data.quiz.answerHighlights) handleQuizSuccess(msg.data.quiz.answerHighlights, msg.data);
-          }}
-        />
-      )}
+      {msg.data?.quiz && answerQuiz(msg, msg.data, msg.data.quiz)}
       {msg.similar && (
         <SimilarStructuresCard
           result={msg.similar.result}
