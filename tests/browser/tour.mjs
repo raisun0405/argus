@@ -63,12 +63,13 @@ try {
   check('...the answer says the tour started', (await b.waitFor(`${receipt(j)}.includes('done:Tour started')`, 5000)) >= 0, await b.ev(receipt(j)));
   check('...and shows the step', (await b.waitFor(`/Step [12] of 2/.test(${rowText(j)})`, 8000)) >= 0, await b.ev(rowText(j)));
   check('the quiz waits for the tour', !(await b.ev(quizShown(j))) && (await b.ev(quizWaits(j))), { shown: await b.ev(quizShown(j)), waits: await b.ev(quizWaits(j)) });
-  await b.shot('tour-journey-playing');
 
+  // Paused straight away: two steps are soon over (a screenshot taken first could outlast them)
   await b.click(rowButton(j, 'Pause'));
   await sleep(300);
   const pausedAt = await b.ev(rowText(j));
   check('Pause in the answer pauses it', (await b.ev(tourState(j))) === 'paused' && /Paused · Step/.test(pausedAt) && !!(await b.ev(`!!${headerButton('Resume the tour')}`)), pausedAt);
+  await b.shot('tour-journey-paused');
   await sleep(4500); // longer than a step
   check('...and it stays on its step', (await b.ev(rowText(j))) === pausedAt && (await b.ev(tourState(j))) === 'paused', await b.ev(rowText(j)));
   await b.click(rowButton(j, 'Resume'));
