@@ -23,12 +23,13 @@ import AnswerTour from './chat/AnswerTour';
 import AnswerChecks from './chat/AnswerChecks';
 import ErrorBoundary, { MessageCrash } from './ErrorBoundary';
 import TweakPanel from './chat/TweakPanel';
-import { actionDone, actionFailed, actionFromId, actionPlanned, asksForTour, parseChatCommand, parseTourControl, type ActionResult, type ChatAction, type TourControl } from '../services/chatActions';
+import { actionDone, actionFailed, actionFromId, actionPlanned, asksForTour, parseChatCommand, parseTourControl, unsupportedAsks, type ActionResult, type ChatAction, type TourControl } from '../services/chatActions';
+import { readableName } from '../services/structureModel';
 import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
 import { ESMFOLD_MAX_LENGTH, SequenceInput, foldSequence, parseSequenceInput } from '../services/esmfoldService';
-import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, getStructureFacts, inspectAnswer, inspectIdentity, loadStructureFacts } from '../services/groundingService';
+import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, entryTitleToOpen, getStructureFacts, inspectAnswer, inspectIdentity, loadStructureFacts } from '../services/groundingService';
 import { collectChecks, type CheckTrail } from '../services/answerChecks';
 import { complexInterface, findPartners } from '../services/partnerService';
 import { cofoldAnalysis, cofoldAvailable, compareAnalysis, compareCofolds, defaultCofoldRequest, isCofoldId, parseCofoldCommand, parseCompareCommand, runCofold } from '../services/cofoldService';
@@ -64,9 +65,26 @@ interface ReasoningEngineProps {
 // What the tour button (and "play the tour" without one) asks the AI for
 const TOUR_REQUEST = 'Generate a cinematic tour explaining the key features of this structure.';
 
+// The actions the chat runs itself; the rest go to the viewer
+const CHAT_ONLY = new Set<ChatAction['kind']>(['theme', 'tour', 'open', 'share', 'clear-chat', 'unsupported']);
+
+// The greeting a conversation starts with (and starts again with, after "clear chat")
+const WELCOME: Message = {
+  role: 'assistant',
+  welcome: true,
+  content: "I'm Argus — your AI co-scientist for protein analysis. Ask me to visualize a structure, explain a mechanism, or walk you through a binding site. Try: 'Show me HIV protease' or 'Explain hemoglobin oxygen transport'.",
+};
+
 const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, onTourStep, onSubtitleChange, currentAnalysis, isInitialLoad, similarityRequest, partnersRequest, cofoldRequest, askRequest, onOpenPalette, onBusyChange, sharedAnalysis, sharedError, getShareLink, shareDisabledReason, onFocusHighlights, onRunActions, headerStart, onTourState, tourControlsRef, getSelection }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // The same, read by work already under way: a function holding an older render's isLoading would
+  // start a second AI turn while one is running
+  const busyRef = useRef(false);
+  const setBusy = (busy: boolean) => {
+    busyRef.current = busy;
+    setIsLoading(busy);
+  };
   const [loadingPhase, setLoadingPhase] = useState<string | null>(null); // New state for granular feedback
   const [loadingKind, setLoadingKind] = useState<'think' | 'work'>('think'); // An answer being written, or a tool running
   const [messages, setMessages] = useState<Message[]>([]);
@@ -101,6 +119,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   const playingTourRef = useRef<TourStep[] | null>(null);
   const tourIndexRef = useRef(0); // The step on screen
   const tourJumpRef = useRef<number | null>(null); // A step asked for ("next", "back"): the loop goes there next
+  const currentAnalysisRef = useRef(currentAnalysis); // The structure on screen now, for an answer still on its way
+  currentAnalysisRef.current = currentAnalysis;
   const tourRunRef = useRef(0); // Bumped on every Play/Stop, so a stopped tour's loop can't carry on
   const isPausedRef = useRef(false); // Read by the tour loop's timed waits
   const recognitionRef = useRef<any>(null);
@@ -134,11 +154,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   useEffect(() => {
     if (isInitialLoad && messages.length === 0) {
       setMessages([
-        {
-          role: 'assistant',
-          welcome: true,
-          content: "I'm Argus — your AI co-scientist for protein analysis. Ask me to visualize a structure, explain a mechanism, or walk you through a binding site. Try: 'Show me HIV protease' or 'Explain hemoglobin oxygen transport'.",
-        },
+        WELCOME,
         // A share link: its answer (labelled as shared), or why it couldn't be opened
         ...(sharedAnalysis
           ? [{ role: 'assistant' as const, content: sharedAnalysis.summary || sharedAnalysis.title, data: sharedAnalysis, shared: true }]
@@ -411,6 +427,15 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     if (isTourActiveRef.current) handleStopTour();
   }, [currentAnalysis]);
 
+  // A held-back answer whose structure is on screen again (from its Open button or otherwise) is an answer like any other
+  useEffect(() => {
+    const id = currentAnalysis?.pdbId;
+    if (!id) return;
+    setMessages(prev => (prev.some(m => m.heldBack && m.data?.pdbId === id)
+      ? prev.map(m => (m.heldBack && m.data?.pdbId === id ? { ...m, heldBack: false } : m))
+      : prev));
+  }, [currentAnalysis?.pdbId]);
+
   // The tour's state and controls, for the viewer's own buttons where this header is out of sight
   useEffect(() => onTourState?.({ active: isTourActive, paused: isPaused }), [isTourActive, isPaused]);
   useEffect(() => {
@@ -438,15 +463,46 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
 
   // --- ACTIONS: the chat changes the workspace (services/chatActions) ---
 
-  // View and tool actions go to the viewer, which runs them once their structure is on screen; theme
-  // and tour run here, after the viewer's, so a tour starts on the structure it describes. Every
-  // result comes from what actually happened.
+  // "open 4HHB": the entry itself, with no AI call, under its RCSB title
+  const openEntry = async (action: Extract<ChatAction, { kind: 'open' }>): Promise<ActionResult> => {
+    if (currentAnalysisRef.current?.pdbId.toUpperCase() === action.id) return actionFailed(action, "it's the structure on screen");
+    const title = await entryTitleToOpen(action.id);
+    if (title === null) return actionFailed(action, 'no PDB entry has that ID');
+    const heading = title ? readableName(title) : action.id;
+    onAnalysisComplete({ pdbId: action.id, title: heading, summary: '', highlights: [] });
+    return actionDone(action, title ? `Opened ${action.id}: ${heading}` : `Opened ${action.id}`);
+  };
+
+  // "share this": the header's Share link, on the clipboard
+  const copyShareLink = async (action: ChatAction): Promise<ActionResult> => {
+    if (shareDisabledReason) return actionFailed(action, shareDisabledReason.charAt(0).toLowerCase() + shareDisabledReason.slice(1));
+    const link = getShareLink?.();
+    if (!link) return actionFailed(action, 'there is nothing to share yet');
+    try {
+      await navigator.clipboard.writeText(link);
+      return actionDone(action);
+    } catch (e) {
+      return actionFailed(action, "the browser didn't allow copying; use the Share button at the top");
+    }
+  };
+
+  // View and tool actions go to the viewer, which runs them once their structure is on screen; theme,
+  // tour, share and opening an entry run here. An entry opened by its ID comes first, so the changes
+  // asked with it ("open 1HSG as a surface") apply to it; a tour runs after the viewer's changes, on the
+  // structure it describes. Every result comes from what actually happened.
   const runActions = async (actions: ChatAction[], options: { target?: string; tour?: TourStep[] } = {}): Promise<ActionResult[]> => {
-    const forViewer = actions.filter(a => a.kind !== 'theme' && a.kind !== 'tour');
-    const viewerResults = forViewer.length > 0 || options.target
-      ? (onRunActions ? await onRunActions(forViewer, options.target) : forViewer.map(a => actionFailed(a, "the viewer isn't ready")))
-      : [];
-    return actions.map(action => {
+    const open = actions.find((a): a is Extract<ChatAction, { kind: 'open' }> => a.kind === 'open');
+    const opened = open ? await openEntry(open) : null;
+    const target = open && opened?.ok ? open.id : options.target;
+    const forViewer = actions.filter(a => !CHAT_ONLY.has(a.kind));
+    const viewerResults = open && !opened?.ok
+      ? forViewer.map(a => actionFailed(a, `${open.id} didn't open`))
+      : forViewer.length > 0 || target
+        ? (onRunActions ? await onRunActions(forViewer, target) : forViewer.map(a => actionFailed(a, "the viewer isn't ready")))
+        : [];
+    return Promise.all(actions.map(async action => {
+      if (action.kind === 'open' && opened) return opened;
+      if (action.kind === 'share') return copyShareLink(action);
       if (action.kind === 'theme') {
         setTheme(action.theme as ThemeId);
         return actionDone(action);
@@ -463,13 +519,22 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         void handlePlayTour(steps);
         return actionDone(action);
       }
+      if (CHAT_ONLY.has(action.kind)) return actionFailed(action, "that isn't something the chat can do here");
       return viewerResults[forViewer.indexOf(action)] ?? actionFailed(action, "the viewer didn't answer");
-    });
+    }));
   };
 
   // A plain request ("surface", "hide waters", "open pockets"): run at once, no AI call, and the
   // reply says what changed. "Play the tour" with no tour asks the AI for one, then plays it.
   const runCommandTurn = async (text: string, actions: ChatAction[], hidden: boolean) => {
+    // "Clear chat": the conversation starts again (the structure on screen stays)
+    if (actions.some(a => a.kind === 'clear-chat')) {
+      if (isTourActiveRef.current) handleStopTour();
+      setMessages([WELCOME]);
+      const rest = actions.filter(a => a.kind !== 'clear-chat');
+      if (rest.length) await runActions(rest);
+      return;
+    }
     const id = ++messageSeqRef.current;
     const tour = actions.find(a => a.kind === 'tour' && a.play);
     const askForTour = Boolean(tour) && !currentAnalysis?.tour?.length;
@@ -480,9 +545,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       { id, role: 'assistant' as const, content: '', actionResults: actions.map(actionPlanned) },
     ]);
     const results = now.length > 0 ? await runActions(now) : [];
-    if (askForTour && tour) results.push(actionDone(tour, 'Asking the AI for a tour'));
+    // Another question may have gone to the AI meanwhile: only one turn at a time
+    const canAsk = askForTour && !busyRef.current;
+    if (askForTour && tour) results.push(canAsk ? actionDone(tour, 'Asking the AI for a tour') : actionFailed(tour, 'the AI is answering another question'));
     setMessages(prev => prev.map(m => (m.id === id ? { ...m, actionResults: results } : m)));
-    if (askForTour) processQuery(TOUR_REQUEST, true, { playTour: true });
+    if (canAsk) processQuery(TOUR_REQUEST, true, { playTour: true });
   };
 
   // While a tour plays, "pause", "next", "stop" and the like steer it here, with no AI call (the AI's
@@ -531,7 +598,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   };
 
   const processQuery = async (userQuery: string, hidden: boolean = false, options: { playTour?: boolean } = {}) => {
-    if (!userQuery.trim() || isLoading) return;
+    if (!userQuery.trim() || busyRef.current) return;
 
     // A playing tour is steered by "pause", "next", "stop"... (anything else is a question as usual)
     const tourControl = isTourActiveRef.current ? parseTourControl(userQuery) : null;
@@ -569,10 +636,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     // tour runs at once (no LLM call); anything else, including mixed requests, goes to the AI
     const command = parseChatCommand(userQuery, THEME_LIST);
     if (command) return runCommandTurn(userQuery.trim(), command, hidden);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('think');
     const requestId = ++requestSeqRef.current;
     activeRequestRef.current = requestId; // Phase timers below only update their own request
+    const askedOn = currentAnalysisRef.current?.pdbId; // The structure on screen when the question was asked
     setLoadingPhase('Looking up the structure…'); // Initial phase
 
     if (!hidden) {
@@ -720,6 +788,13 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       // played, even when the AI wrote one without asking for it to start
       if ((options.playTour || asksForTour(userQuery)) && analysis.tour?.length && !planned.some(a => a.kind === 'tour')) planned.push({ kind: 'tour', play: true });
       const tourStarts = Boolean(analysis.tour?.length) && planned.some(a => a.kind === 'tour' && a.play);
+      // The user opened another structure while this answer was on its way (a card's "View", say): the
+      // answer waits in the chat with an Open button rather than pulling the view back, and changes nothing
+      const onScreen = currentAnalysisRef.current?.pdbId;
+      const heldBack = onScreen !== askedOn && analysis.pdbId !== onScreen;
+      // What the question asked of the view that Argus can't do ("colour it red") is said under the
+      // answer, with what comes closest, rather than left undone without a word
+      const unsupported = unsupportedAsks(userQuery);
       const id = ++messageSeqRef.current;
       setMessages(prev => [
         ...prev,
@@ -729,14 +804,18 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           content: analysis.summary,
           data: analysis,
           ...(checks ? { checks } : {}),
-          ...(planned.length ? { actionResults: planned.map(actionPlanned) } : {}),
-          ...(tourStarts && analysis.quiz ? { quizAfterTour: true } : {}),
+          ...(heldBack ? { heldBack: true } : {
+            ...(planned.length || unsupported.length ? { actionResults: [...planned.map(actionPlanned), ...unsupported] } : {}),
+            ...(tourStarts && analysis.quiz ? { quizAfterTour: true } : {}),
+          }),
         }
       ]);
-      onAnalysisComplete(analysis);
-      if (planned.length) {
-        runActions(planned, { target: analysis.pdbId, tour: analysis.tour })
-          .then(results => setMessages(prev => prev.map(m => (m.id === id ? { ...m, actionResults: results } : m))));
+      if (!heldBack) {
+        onAnalysisComplete(analysis);
+        if (planned.length) {
+          runActions(planned, { target: analysis.pdbId, tour: analysis.tour })
+            .then(results => setMessages(prev => prev.map(m => (m.id === id ? { ...m, actionResults: [...results, ...unsupported] } : m))));
+        }
       }
     } catch (error: any) {
       setMessages(prev => [
@@ -753,7 +832,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         }
       ]);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       activeRequestRef.current = 0;
       setLoadingPhase(null);
     }
@@ -779,7 +858,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       return reject(`ESMFold's free server folds up to ${ESMFOLD_MAX_LENGTH} residues, and this sequence has ${sequence.length}. Fold one domain at a time (for example residues 1–${ESMFOLD_MAX_LENGTH}), or, if it's a known protein, ask me for its AlphaFold model.`);
     }
 
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Folding with ESMFold…');
     try {
@@ -801,7 +880,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     } catch (error: any) {
       reject(`Couldn't fold the sequence${error?.message ? ` (${error.message})` : ''}. Try again in a moment.`);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -809,10 +888,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // --- SIMILAR STRUCTURES (Foldseek; no LLM tokens) ---
 
   const runSimilaritySearch = async (query: SimilarSearchQuery) => {
-    if (isLoading || !currentAnalysis) return;
+    if (busyRef.current || !currentAnalysis) return;
     const origin = currentAnalysis;
     setMessages(prev => [...prev, { role: 'user', content: `Find structures similar to ${query.label}` }]);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Sending the structure to Foldseek…');
 
@@ -830,7 +909,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         { role: 'assistant', notice: 'error', content: `Couldn't complete the structure search${error?.message ? ` (${error.message})` : ''}. Try again in a moment.` },
       ]);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -851,10 +930,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // --- INTERACTION PARTNERS (STRING + RCSB; no LLM tokens) ---
 
   const runPartnerSearch = async (query: PartnerQuery) => {
-    if (isLoading || !currentAnalysis) return;
+    if (busyRef.current || !currentAnalysis) return;
     const origin = currentAnalysis;
     setMessages(prev => [...prev, { role: 'user', content: `Find interaction partners of ${query.label}` }]);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Asking STRING for interaction partners…');
 
@@ -874,7 +953,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         { role: 'assistant', notice: 'error', content: `Couldn't look up interaction partners${error?.message ? ` (${error.message})` : ''}.` },
       ]);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -888,8 +967,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
 
   const openPartnerComplex = async (partner: InteractionPartner, result: PartnerSearchResult) => {
     const pdbId = partner.bestComplex;
-    if (!pdbId || !partner.accession || isLoading) return;
-    setIsLoading(true);
+    if (!pdbId || !partner.accession || busyRef.current) return;
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase(`Loading ${pdbId} and finding the interface…`);
     try {
@@ -916,7 +995,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       setMessages(prev => [...prev, { role: 'assistant', content: analysis.summary, data: analysis }]);
       onAnalysisComplete(analysis);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -924,10 +1003,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // --- CO-FOLD (Boltz-2 on the server; no LLM tokens) ---
 
   const runCofoldTurn = async (userText: string, molecule: string, getRequest: () => Promise<CofoldRequest>) => {
-    if (isLoading || !currentAnalysis) return;
+    if (busyRef.current || !currentAnalysis) return;
     const origin = currentAnalysis;
     setMessages(prev => [...prev, { role: 'user', content: userText }]);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Preparing Co-fold…');
     try {
@@ -938,7 +1017,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     } catch (error: any) {
       setMessages(prev => [...prev, { role: 'assistant', notice: 'error', content: `Couldn't co-fold ${molecule}${error?.message ? `: ${error.message}` : ''}.` }]);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -946,10 +1025,10 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // Two molecules under the same conditions (only the molecule differs), predicted side by side
   // and combined into one complex. Each prediction is cached, so a molecule co-folded earlier is instant.
   const runCompareTurn = async (userText: string, pair: [string, string], getRequest: () => Promise<CofoldRequest>) => {
-    if (isLoading || !currentAnalysis) return;
+    if (busyRef.current || !currentAnalysis) return;
     const origin = currentAnalysis;
     setMessages(prev => [...prev, { role: 'user', content: userText }]);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Preparing the comparison…');
     const started = Date.now();
@@ -977,7 +1056,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       setMessages(prev => [...prev, { role: 'assistant', notice: 'error', content: `Couldn't compare ${pair[0]} and ${pair[1]}${error?.message ? ` (${error.message})` : ''}.` }]);
     } finally {
       clearInterval(timer);
-      setIsLoading(false);
+      setBusy(false);
       setLoadingPhase(null);
     }
   };
@@ -985,7 +1064,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // --- INVESTIGATE (the AI plans, the app runs its own tools, the AI writes up their results) ---
 
   const runInvestigation = async (question: string) => {
-    if (isLoading || !currentAnalysis) return;
+    if (busyRef.current || !currentAnalysis) return;
     const origin = currentAnalysis;
     const id = ++messageSeqRef.current;
     const controller = new AbortController();
@@ -994,17 +1073,24 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       setMessages(prev => prev.map(m => (m.id === id && m.investigation ? { ...m, investigation: change(m.investigation) } : m)));
     const onRateLimitWait = (seconds: number) => update(s => ({ ...s, notice: `The AI is busy, retrying in ${seconds} s` }));
     const stopped = () => controller.signal.aborted;
+    // Stop ends any wait at once: the AI calls are aborted, and a file still loading is dropped when it lands
+    const unlessStopped = <T,>(work: Promise<T>) => new Promise<T>((resolve, reject) => {
+      const stop = () => reject(new Error('stopped'));
+      if (stopped()) return stop();
+      controller.signal.addEventListener('abort', stop, { once: true });
+      work.then(resolve, reject).finally(() => controller.signal.removeEventListener('abort', stop));
+    });
     setMessages(prev => [
       ...prev,
       { role: 'user', content: question },
       { id, role: 'assistant', content: '', investigation: { question, phase: 'planning', startedAt: Date.now(), steps: [] } },
     ]);
-    setIsLoading(true);
+    setBusy(true);
     setLoadingKind('work');
     setInvestigatingId(id);
     try {
       // 1. The plan: the AI's, or one from the question's words when the AI can't make one
-      const planned = await requestPlan(question, { pdbId: origin.pdbId, title: origin.title }, onRateLimitWait).catch(() => null);
+      const planned = await requestPlan(question, { pdbId: origin.pdbId, title: origin.title }, onRateLimitWait, controller.signal).catch(() => null);
       if (stopped()) throw new Error('stopped');
       let plan = planned ?? fallbackPlan(question, origin.pdbId);
 
@@ -1012,12 +1098,12 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       let pdb: string;
       let unavailable: string | undefined;
       try {
-        pdb = await loadStructureText(plan.structure);
+        pdb = await unlessStopped(loadStructureText(plan.structure));
       } catch (e) {
-        if (plan.structure === origin.pdbId) throw e;
+        if (stopped() || plan.structure === origin.pdbId) throw e;
         unavailable = plan.structure;
         plan = { ...plan, structure: origin.pdbId };
-        pdb = await loadStructureText(origin.pdbId);
+        pdb = await unlessStopped(loadStructureText(origin.pdbId));
       }
       if (stopped()) throw new Error('stopped');
       update(s => ({
@@ -1034,16 +1120,16 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       if (plan.structure !== origin.pdbId) onAnalysisComplete({ pdbId: plan.structure, title: plan.title, summary: '', highlights: [] }, { quiet: true });
 
       // 3. The steps, side by side, each reporting as it goes
-      const steps = await runInvestigationSteps(
+      const steps = await unlessStopped(runInvestigationSteps(
         plan.structure, pdb, plan,
-        step => update(s => ({ ...s, steps: s.steps.map(x => (x.index === step.index ? step : x)) })),
+        step => { if (!stopped()) update(s => ({ ...s, steps: s.steps.map(x => (x.index === step.index ? step : x)) })); },
         controller.signal,
-      );
+      ));
       if (stopped()) throw new Error('stopped');
 
       // 4. The write-up, from those results alone (the results themselves when the AI can't write one)
       update(s => ({ ...s, phase: 'writing', steps }));
-      const written = await requestWriteUp(question, { id: plan.structure, title: plan.title }, steps, onRateLimitWait).catch(() => null);
+      const written = await requestWriteUp(question, { id: plan.structure, title: plan.title }, steps, onRateLimitWait, controller.signal).catch(() => null);
       if (stopped()) throw new Error('stopped');
       const writeUp = written ?? fallbackWriteUp(steps, plan.title);
       const title = writeUp.title || plan.title;
@@ -1066,7 +1152,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
       else update(s => ({ ...s, phase: 'failed', notice: undefined, error: error?.message || 'something went wrong', finishedAt: Date.now() }));
     } finally {
       if (investigationRef.current?.id === id) investigationRef.current = null;
-      setIsLoading(false);
+      setBusy(false);
       setInvestigatingId(null);
     }
   };
@@ -1254,6 +1340,19 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         </div>
       )}
       {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
+      {/* An answer that came after the user had opened another structure: opened only when asked */}
+      {msg.heldBack && msg.data && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5" data-held-back>
+          <span className="text-[11.5px] leading-snug text-ink-dim">This answer came after you opened another structure.</span>
+          <button
+            type="button"
+            onClick={() => msg.data && onAnalysisComplete(msg.data)}
+            className="h-7 touch:h-9 px-2.5 touch:px-3 rounded-md border border-line bg-canvas/60 text-[12px] font-medium text-ink hover:border-line-2 hover:text-ink-strong transition-colors"
+          >
+            Open {structureTag(msg.data.pdbId)}
+          </button>
+        </div>
+      )}
       {msg.actionResults && msg.actionResults.length > 0 && (
         <div className={msg.content ? 'mt-2.5' : ''}>
           <ActionReceipt results={msg.actionResults} />

@@ -988,6 +988,12 @@ const fetchEntryTitle = (id: string): Promise<string> =>
     return typeof json?.struct?.title === 'string' ? json.struct.title : '';
   });
 
+/** A PDB entry asked for by its ID ("open 4HHB"): its title, '' when RCSB couldn't say, null when there is no such entry. */
+export const entryTitleToOpen = async (id: string): Promise<string | null> => {
+  if ((await rcsbHasEntry(id)) === false) return null;
+  return fetchEntryTitle(id).catch(() => '');
+};
+
 const identityCache = new Map<string, Promise<EntryIdentity | null>>();
 
 /** A PDB entry's or AlphaFold model's identity records; null when there is no such structure. */

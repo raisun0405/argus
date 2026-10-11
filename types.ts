@@ -54,6 +54,7 @@ export interface Message {
   data?: ProteinAnalysis; // Only assistant messages might have structured data
   checks?: AnswerChecks; // What the app checked in the AI's answer before showing it, and what it fixed first
   quizAfterTour?: boolean; // The answer's tour started by itself: its quiz waits until the tour has played
+  heldBack?: boolean; // The answer came after the user had opened another structure: it waits for "Open" instead of moving the view
   shared?: boolean; // The answer came from a share link, not from the AI in this session
   welcome?: boolean; // The greeting before the first question (the welcome screen replaces it)
   notice?: 'error'; // Something went wrong: shown as a notice, not as an answer

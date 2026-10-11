@@ -5,7 +5,7 @@ const kinds = t => { const r = parseChatCommand(t); return r ? r.map(a => a.kind
 const cases = [
   ['save a picture', 'picture'], ['screenshot', 'picture'], ['take a screenshot', 'picture'], ['download image', 'picture'],
   ['export png', 'picture'], ['save a picture and reset view', 'picture,reset'], ['please save an image of this', 'picture'],
-  ['show me a picture of haemoglobin', 'AI'], ['picture', 'AI'], ['save', 'AI'], ['download the structure', 'AI'],
+  ['show me a picture of haemoglobin', 'AI'], ['picture', 'AI'], ['save', 'AI'], ['download the structure', 'download'], ['save the pdb file', 'download'],
   ['what does this image show', 'AI'], ['take me to A:25', 'select'], ['take away the waters', 'part:waters:hide'], ['surface', 'shape'],
 ];
 let failed = 0;

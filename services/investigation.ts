@@ -584,8 +584,17 @@ export const fallbackWriteUp = (steps: InvestigationStep[], title: string): Writ
 
 const MAX_RATE_LIMIT_WAIT_S = 20;
 
-const post = async (body: object, onRateLimitWait?: (seconds: number) => void): Promise<unknown> => {
-  const send = () => fetch('/api/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+/** Waits `ms`, or rejects at once when the investigation is stopped. */
+const waitUnlessStopped = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const stop = () => { clearTimeout(timer); reject(new DOMException('Stopped', 'AbortError')); };
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve(); }, ms);
+  if (signal?.aborted) return stop();
+  signal?.addEventListener('abort', stop, { once: true });
+});
+
+// Stop on the investigation's card aborts the call itself, and the wait before its retry
+const post = async (body: object, onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal): Promise<unknown> => {
+  const send = () => fetch('/api/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
   let response = await send();
   // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one more try
   if (response.status === 502 || response.status === 504) response = await send();
@@ -594,7 +603,7 @@ const post = async (body: object, onRateLimitWait?: (seconds: number) => void): 
     const suggested = Number(response.headers.get('retry-after'));
     const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(suggested) && suggested > 0 ? Math.ceil(suggested) : 10);
     onRateLimitWait?.(wait);
-    await new Promise(r => setTimeout(r, wait * 1000));
+    await waitUnlessStopped(wait * 1000, signal);
     response = await send();
   }
   if (stoppedByFirewall(response)) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: response.status, firewall: true });
@@ -606,8 +615,8 @@ const post = async (body: object, onRateLimitWait?: (seconds: number) => void): 
 };
 
 /** The AI's plan for a question about the structure on screen (null when it's unusable). */
-export const requestPlan = async (question: string, current: { pdbId: string; title: string }, onRateLimitWait?: (seconds: number) => void) =>
-  normalizePlan(await post({ stage: 'plan', question, current }, onRateLimitWait), current.pdbId, question);
+export const requestPlan = async (question: string, current: { pdbId: string; title: string }, onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal) =>
+  normalizePlan(await post({ stage: 'plan', question, current }, onRateLimitWait, signal), current.pdbId, question);
 
 /** Published papers for a literature step's search words (the server holds the search key). */
 const searchLiterature = async (query: string): Promise<LiteratureSource[]> =>
@@ -633,12 +642,13 @@ export const checkWriteUp = async (
   writeUp: WriteUp,
   steps: InvestigationStep[],
   onRateLimitWait?: (seconds: number) => void,
+  signal?: AbortSignal,
 ): Promise<WriteUp> => {
   const parts = splitSentences(writeUp.answer);
   const sentences = parts.map((p, id) => ({ id, text: p.text.trim() })).filter(s => s.text.length > 0).slice(0, MAX_CHECKED)
     .map(s => ({ ...s, missing: missingTerms(s.text, question, citedText(s.text, steps)) }));
   if (sentences.length === 0) return writeUp;
-  const raw = (await post({ stage: 'check', question, results: findingsText(steps), sentences }, onRateLimitWait)) as { verdicts?: unknown };
+  const raw = (await post({ stage: 'check', question, results: findingsText(steps), sentences }, onRateLimitWait, signal)) as { verdicts?: unknown };
   const { answer, fixed, dropped } = applyCheck(writeUp.answer, normalizeCheck(raw, sentences), steps.length);
   const checked = { sentences: sentences.length, fixed, dropped };
   // Nothing left standing: say so plainly rather than show an empty answer
@@ -655,9 +665,10 @@ export const requestDraft = async (
   structure: { id: string; title: string },
   steps: InvestigationStep[],
   onRateLimitWait?: (seconds: number) => void,
+  signal?: AbortSignal,
 ) => {
   const sets = markableSets(steps);
-  const raw = await post({ stage: 'write', question, structure, findings: findingsText(steps), sets, steps: steps.length }, onRateLimitWait);
+  const raw = await post({ stage: 'write', question, structure, findings: findingsText(steps), sets, steps: steps.length }, onRateLimitWait, signal);
   return normalizeWrite(raw, sets.map(s => s.name), steps.length);
 };
 
@@ -667,10 +678,10 @@ export const requestDraft = async (
  * results (a check that can't run leaves it unmarked); then the quotes the model picked are verified and
  * added (addQuotes).
  */
-export const finishWriteUp = async (question: string, draft: WriteUp, steps: InvestigationStep[], onRateLimitWait?: (seconds: number) => void): Promise<WriteUp> => {
+export const finishWriteUp = async (question: string, draft: WriteUp, steps: InvestigationStep[], onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal): Promise<WriteUp> => {
   const papers = papersOf(steps);
   const gated = { ...draft, answer: quoteGate(draft.answer, papers, steps.length).answer };
-  const checked = gated.answer ? await checkWriteUp(question, gated, steps, onRateLimitWait).catch(() => gated) : gated;
+  const checked = gated.answer ? await checkWriteUp(question, gated, steps, onRateLimitWait, signal).catch(() => gated) : gated;
   // A fix can't bring a paraphrase back
   const regated = quoteGate(checked.answer, papers, steps.length);
   const quoted = addQuotes(regated.answer, draft.quotes ?? [], papers);
@@ -686,7 +697,8 @@ export const requestWriteUp = async (
   structure: { id: string; title: string },
   steps: InvestigationStep[],
   onRateLimitWait?: (seconds: number) => void,
+  signal?: AbortSignal, // Stop on the card: the draft and its check are both called off
 ) => {
-  const draft = await requestDraft(question, structure, steps, onRateLimitWait);
-  return draft ? finishWriteUp(question, draft, steps, onRateLimitWait) : null;
+  const draft = await requestDraft(question, structure, steps, onRateLimitWait, signal);
+  return draft ? finishWriteUp(question, draft, steps, onRateLimitWait, signal) : null;
 };

@@ -30,7 +30,15 @@ export type ChatAction =
   | { kind: 'inspector'; open: boolean }
   | { kind: 'theme'; theme: string; name: string }
   | { kind: 'tour'; play: boolean }
-  | { kind: 'picture' }; // Save the 3D view as a PNG file (only the user asks for this)
+  | { kind: 'picture' } // Save the 3D view as a PNG file (only the user asks for this)
+  | { kind: 'chains'; only: string[] } // Show only these chains (every chain again when empty)
+  | { kind: 'spin'; on: boolean } // Turn the structure slowly about its vertical axis
+  | { kind: 'zoom' } // Closer
+  | { kind: 'open'; id: string } // Open a PDB entry by its ID, with no AI call
+  | { kind: 'download' } // Save the structure file on screen (only the user asks for this)
+  | { kind: 'share' } // Copy a link to this view
+  | { kind: 'clear-chat' } // Start the conversation afresh
+  | { kind: 'unsupported'; what: string }; // Asked for, but not something Argus does: the reply says so, and why
 
 export interface ActionResult {
   action: ChatAction;
@@ -81,6 +89,14 @@ export const describeAction = (a: ChatAction): string => {
     case 'theme': return `Theme: ${a.name}`;
     case 'tour': return a.play ? 'Tour started' : 'Tour stopped';
     case 'picture': return 'Picture saved';
+    case 'chains': return a.only.length ? `Only chain${a.only.length > 1 ? 's' : ''} ${a.only.join(', ')} shown` : 'All chains shown';
+    case 'spin': return a.on ? 'Spinning (say "stop spinning" to stop)' : 'Spin stopped';
+    case 'zoom': return 'Zoomed in';
+    case 'open': return `Opened ${a.id}`;
+    case 'download': return 'Structure file saved';
+    case 'share': return 'Link to this view copied';
+    case 'clear-chat': return 'Chat cleared';
+    case 'unsupported': return `Couldn't ${a.what}`;
   }
 };
 
@@ -105,6 +121,14 @@ const intent = (a: ChatAction): string => {
     case 'theme': return `switch to ${a.name}`;
     case 'tour': return `${a.play ? 'start' : 'stop'} the tour`;
     case 'picture': return 'save a picture';
+    case 'chains': return a.only.length ? `show only chain${a.only.length > 1 ? 's' : ''} ${a.only.join(', ')}` : 'show all chains';
+    case 'spin': return a.on ? 'spin the structure' : 'stop the spin';
+    case 'zoom': return 'zoom in';
+    case 'open': return `open ${a.id}`;
+    case 'download': return 'save the structure file';
+    case 'share': return 'copy a link';
+    case 'clear-chat': return 'clear the chat';
+    case 'unsupported': return a.what;
   }
 };
 
@@ -141,6 +165,13 @@ export const actionFromId = (id: string): ChatAction | null => {
     case 'reset':
     case 'reset-view': return arg ? null : { kind: 'reset' };
     case 'tour': return !arg || arg === 'play' ? { kind: 'tour', play: true } : null;
+    case 'chains': {
+      if (arg === 'all') return { kind: 'chains', only: [] };
+      const ids = arg.split('-');
+      return arg && ids.length <= 8 && ids.every(c => /^[a-z0-9]$/.test(c)) ? { kind: 'chains', only: [...new Set(ids.map(c => c.toUpperCase()))] } : null;
+    }
+    case 'spin': return !arg || arg === 'on' ? { kind: 'spin', on: true } : arg === 'off' ? { kind: 'spin', on: false } : null;
+    case 'zoom': return arg === 'in' ? { kind: 'zoom' } : null;
     default: return null;
   }
 };
@@ -156,6 +187,9 @@ export const actionToId = (a: ChatAction): string | null => {
     case 'overlay': return `overlay:${a.with === 'alphafold' ? 'alphafold' : a.with.toLowerCase()}`;
     case 'reset': return 'reset-view';
     case 'tour': return a.play ? 'tour:play' : null;
+    case 'chains': return `chains:${a.only.length ? a.only.join('-').toLowerCase() : 'all'}`;
+    case 'spin': return `spin:${a.on ? 'on' : 'off'}`;
+    case 'zoom': return 'zoom:in';
     default: return null;
   }
 };
@@ -210,17 +244,23 @@ type Entry =
   | { t: 'onoff'; shown: boolean } // "ligands off"
   | { t: 'inspector' }
   | { t: 'tour' }
-  | { t: 'save' } // "save", "download": a picture may follow
-  | { t: 'picture'; standalone?: boolean }; // "screenshot" asks by itself; "picture" needs "save" ("show me a picture of..." is a question)
+  | { t: 'save' } // "save", "download": a picture or the structure file may follow
+  | { t: 'picture'; standalone?: boolean } // "screenshot" asks by itself; "picture" needs "save" ("show me a picture of..." is a question)
+  | { t: 'only' } // "only", "just", "except": "show only chain A", "hide everything except chain B"
+  | { t: 'spin' }
+  | { t: 'zoom-in' } // "bigger", "closer"
+  | { t: 'file' } // "the PDB file", after "save" or "download"
+  | { t: 'share' }
+  | { t: 'clear-chat' };
 
 const TABLE = new Map<string, Entry>();
 const add = (phrases: string, entry: Entry) => phrases.split('|').forEach(p => TABLE.set(p, entry));
 
-add('please|pls|plz|can|could|would|will|you|u|me|us|i|we|it|its|this|that|these|those|to|into|as|by|and|then|also|plus|with|of|for|now|just|' +
+add('please|pls|plz|can|could|would|will|you|u|me|us|i|we|it|its|this|that|these|those|to|into|as|by|and|then|also|plus|with|of|for|now|all|every|each|' +
   'change|set|make|use|apply|give|put|render|draw|view|style|shape|shapes|representation|rep|look|looks|mode|theme|appearance|ok|okay|hey|hi|yo|' +
   'lets|let|want|wanna|need|like|prefer|instead|again|back|kindly|thanks|thank|some|bit|little|protein|structure|molecule|model|current|' +
   'currently|find|search|predict|compute|calculate|get|fetch|see|percent|%|in|at|the|a|an|go ahead|switch|turn|everything|camera|from', { t: 'filler' });
-add('show|display|open|enable|activate|unhide|reveal|start|play|begin|run|launch|turn on|switch on|bring up|pull up|bring back|visible|add', { t: 'verb', shown: true });
+add('show|display|open|load|enable|activate|unhide|reveal|start|play|begin|run|launch|turn on|switch on|bring up|pull up|bring back|visible|add', { t: 'verb', shown: true });
 add('hide|remove|disable|deactivate|close|exit|quit|stop|end|turn off|switch off|without|no|invisible|get rid of|take away|drop', { t: 'verb', shown: false });
 add('dont|do not|not|never', { t: 'negate' });
 add('colour|paint|painted|tint|scheme', { t: 'colourword' });
@@ -273,6 +313,18 @@ add('tour|cinematic tour|guided tour|walkthrough|walk through', { t: 'tour' });
 add('save|download|export|capture|grab|snap|take', { t: 'save' });
 add('picture|pictures|image|images|png|photo|photos|pic|pics', { t: 'picture' });
 add('screenshot|screenshots|snapshot|snapshots|screen shot|screen capture|screengrab|screen grab', { t: 'picture', standalone: true });
+add('only|just|solely|exclusively|isolate|isolated|except|except for|but|apart from|other than|besides', { t: 'only' });
+add('spin|spinning|rotate|rotating|revolve|revolving|autorotate|auto rotate|auto-rotate|turn around|turn it around', { t: 'spin' });
+add('bigger|larger|closer|enlarge|magnify', { t: 'zoom-in' });
+add('file|files|pdb|pdb file|cif|mmcif|cif file|coordinates|coordinate file|structure file|model file', { t: 'file' });
+add('share|share link|share a link|share the link|copy link|copy the link|copy a link|get a link|get the link|link', { t: 'share' });
+add('clear chat|clear the chat|new chat|start over|start again|reset chat|reset the chat|clear conversation|clear the conversation|clear messages|clear history|clear the history', { t: 'clear-chat' });
+
+// A PDB ID typed to open it ("open 4HHB", "load 1hsg", or the ID by itself): a digit, then three
+// letters or digits, at least one of them a letter (so "1000" stays a number)
+const PDB_ENTRY = /^[1-9](?=[a-z0-9]*[a-z])[a-z0-9]{3}$/;
+// After "save" or "download", words that mean the structure file ("download the structure")
+const STRUCTURE_WORDS = new Set(['structure', 'model', 'protein', 'molecule']);
 
 // After "tour", words that still mean the whole structure ("a tour of this protein", "tour it again"),
 // and the words that end the tour's part of a request ("play the tour and hide waters")
@@ -314,6 +366,7 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
   let awaiting: 'opacity' | 'transparency' | null = null; // "opacity 50": the number follows
   let clearing = false;
   let saving = false; // "save" / "download": what to save follows
+  let only = false; // "only", "just", "except": the chains that follow are all that stays shown
 
   const entryAt = (i: number): [Entry, number] | null => {
     for (let n = Math.min(4, tokens.length - i); n >= 1; n--) {
@@ -369,6 +422,12 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
     const found = entryAt(i);
 
     if (!found) {
+      // "open 4HHB", "load 1hsg", or the ID by itself: that entry, with no AI call
+      if (PDB_ENTRY.test(token) && (verb === true || tokens.length === 1) && !actions.some(a => a.kind === 'open')) {
+        actions.push({ kind: 'open', id: token.toUpperCase() });
+        i++;
+        continue;
+      }
       const number = /^(\d{1,3})%?$/.exec(token);
       if (number) {
         const value = Math.min(100, Number(number[1]));
@@ -398,8 +457,18 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
     let next = i + length;
     switch (entry.t) {
       case 'filler':
+        // "download the structure": its file
+        if (saving && STRUCTURE_WORDS.has(token)) {
+          actions.push({ kind: 'download' });
+          saving = false;
+        }
+        break;
       case 'colourword':
         break;
+      case 'only':
+        only = true;
+        i = next;
+        continue;
       case 'verb':
         verb = negate ? !entry.shown : entry.shown;
         negate = false;
@@ -427,7 +496,19 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
           ids.push(tokens[next++].toUpperCase());
           if (tokens[next] === 'and' && isId(tokens[next + 1])) next++; // "chains B and C"
         }
+        // "show only chain A", "hide everything except chain B": those stay, every other chain goes
+        if (only) {
+          if (ids.length === 0) return null;
+          actions.push({ kind: 'chains', only: ids });
+          only = false;
+          break;
+        }
         if (ids.length === 0) {
+          // "show all chains": every one again
+          if (verb === true && tokens.some(t => t === 'all' || t === 'every')) {
+            actions.push({ kind: 'chains', only: [] });
+            break;
+          }
           if (!mentionsColour) return null;
           actions.push({ kind: 'colour', colouring: 'chain' });
           break;
@@ -439,6 +520,7 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
         break;
       }
       case 'part': {
+        if (only) return null; // "show just the ligand": the AI can mark it, and the view closes in on it
         const shown = shownFor(next);
         if (!shown || (saidMe && shown[0])) return null; // "show me the ligands" is a question about them
         next += shown[1];
@@ -472,7 +554,8 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
           actions.push(picked[0]);
           next = picked[1];
         } else if (entry.t === 'centre') actions.push({ kind: 'reset' });
-        else return null; // "zoom in", "go back": not a place we can go to
+        else if (/^zoom(?: in)?$/.test(tokens.slice(i, next).join(' '))) actions.push({ kind: 'zoom' }); // "zoom in": closer
+        else return null; // "go back", "zoom in on the ligand": not a place we can go to
         break;
       }
       case 'clear-selection':
@@ -523,6 +606,23 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
         if (!actions.some(a => a.kind === 'picture')) actions.push({ kind: 'picture' });
         saving = false;
         break;
+      case 'file':
+        if (!saving) return null; // "the PDB file" alone is a question
+        if (!actions.some(a => a.kind === 'download')) actions.push({ kind: 'download' });
+        saving = false;
+        break;
+      case 'spin':
+        actions.push({ kind: 'spin', on: verb !== false });
+        break;
+      case 'zoom-in':
+        actions.push({ kind: 'zoom' });
+        break;
+      case 'share':
+        actions.push({ kind: 'share' });
+        break;
+      case 'clear-chat':
+        actions.push({ kind: 'clear-chat' });
+        break;
     }
     if (entry.t !== 'filler' && entry.t !== 'colourword') fresh = false;
     i = next;
@@ -530,6 +630,37 @@ export const parseChatCommand = (text: string, themes: ThemeChoice[] = []): Chat
 
   if (pendingNumber !== null || awaiting || clearing || negate || saving || actions.length === 0 || actions.length > 8) return null;
   return actions;
+};
+
+// --- WHAT ARGUS DOESN'T DO ---
+// Asked for in a question that goes to the AI, which has no action for it ("colour the zinc red",
+// "show labels"): the reply says so under the answer, with what comes closest, rather than doing
+// something else without a word.
+
+const COLOURS = 'red|orange|yellow|green|blue|purple|violet|pink|magenta|cyan|teal|white|black|grey|gray|brown|gold';
+const OWN_COLOUR = new RegExp(
+  `\\b(?:colou?r(?:ed)?|paint|tint|shade)\\b[^.?!]{0,40}?\\b(${COLOURS})\\b` + // "colour the zinc ions red"
+  `|\\bmake\\s+(?:it|them|this|that|everything|the\\s+[\\w-]+(?:\\s+[\\w-]+)?)\\s+(${COLOURS})\\b` + // "make the ligand blue"
+  `|\\b(?:highlight|show)\\b[^.?!]{0,40}?\\bin\\s+(${COLOURS})\\b`, // "highlight the heme in yellow"
+  'i',
+);
+const LABELS = /\b(?:show|add|display|put|turn on|switch on)\b[^.?!]{0,30}?\blabels?\b|\blabel\s+(?:the|all|each|every|these|those|its|it)\b|\bshow\s+(?:the\s+)?(?:residue\s+)?names\b/i;
+
+/** The display requests in a question that Argus can't carry out, as receipt lines saying why. */
+export const unsupportedAsks = (text: string): ActionResult[] => {
+  const found: ActionResult[] = [];
+  const colour = OWN_COLOUR.exec(text);
+  if (colour) {
+    const name = (colour[1] ?? colour[2] ?? colour[3]).toLowerCase();
+    found.push(actionFailed(
+      { kind: 'unsupported', what: `colour it ${name}` },
+      "choosing colours isn't possible yet; the colourings are by element, chain, rainbow (N to C), hydrophobicity and residue type",
+    ));
+  }
+  if (LABELS.test(text)) {
+    found.push(actionFailed({ kind: 'unsupported', what: 'show labels' }, 'the 3D view has no residue labels yet; hover over a residue to see its name'));
+  }
+  return found;
 };
 
 // --- WHILE A TOUR PLAYS ---

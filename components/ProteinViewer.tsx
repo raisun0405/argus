@@ -223,6 +223,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches);
   const [openSections, setOpenSections] = useState<string[]>(['focus', 'style']);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
+  const [spinning, setSpinning] = useState(false); // "Spin" in the chat: the structure turns until told to stop
   const [foldedTools, setFoldedTools] = useState<string[]>([]); // Docked tools folded to their header
   const toggleTool = (id: string) => setFoldedTools(folded => (folded.includes(id) ? folded.filter(f => f !== id) : [...folded, id]));
   const toggleSection = (id: string) => setOpenSections(open => (open.includes(id) ? open.filter(s => s !== id) : [...open, id]));
@@ -2080,6 +2081,33 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     }
   };
 
+  // The structure file on screen, as it is drawn (an AlphaFold model with its AlphaFill ligands, a co-folded complex)
+  const downloadStructure = (): boolean => {
+    if (!pdbContent || contentIdRef.current !== structureId) return false;
+    try {
+      const cif = /^\s*data_/.test(pdbContent);
+      const url = URL.createObjectURL(new Blob([pdbContent], { type: cif ? 'chemical/x-cif' : 'chemical/x-pdb' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `argus-${structureId.toLowerCase()}.${cif ? 'cif' : 'pdb'}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // "Spin": a slow turn about the screen's vertical axis, until "stop spinning"
+  useEffect(() => {
+    if (!viewerInstance) return;
+    try {
+      viewerInstance.spin(spinning ? 'y' : false, 0.5);
+    } catch (e) {}
+  }, [viewerInstance, spinning]);
+
   // What the structure is made of, as switchable layers, each with the same control
   const layers: Layer[] = useMemo(() => {
     if (!model) return [];
@@ -2360,6 +2388,27 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         return actionDone(action);
       case 'picture':
         return savePicture() ? actionDone(action) : actionFailed(action, "the 3D view isn't ready yet");
+      case 'download':
+        return downloadStructure() ? actionDone(action) : actionFailed(action, "the structure hasn't loaded yet");
+      case 'chains': {
+        const all = model?.chains.map(c => c.chain) ?? [];
+        const wanted = action.only.map(id => all.find(c => c.toUpperCase() === id.toUpperCase()));
+        const missing = action.only.filter((_, k) => !wanted[k]);
+        if (missing.length) return actionFailed(action, `this structure has no chain ${missing.join(', ')}`);
+        setHiddenLayers(current => {
+          const next = new Set([...current].filter(id => !id.startsWith('chain:')));
+          if (action.only.length) for (const c of all) if (!wanted.includes(c)) next.add(`chain:${c}`);
+          return next;
+        });
+        return actionDone(action);
+      }
+      case 'spin':
+        setSpinning(action.on);
+        return actionDone(action);
+      case 'zoom':
+        if (!viewerInstance) return actionFailed(action, "the 3D view isn't ready yet");
+        viewerInstance.zoom(1.6, 400);
+        return actionDone(action);
       case 'select':
         return selectResidues(action) ? actionDone(action) : actionFailed(action, 'this structure has no such residues');
       case 'clear-selection':

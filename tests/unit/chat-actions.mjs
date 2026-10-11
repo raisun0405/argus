@@ -24,6 +24,9 @@ const short = (a) => {
     case 'inspector': return `inspector:${a.open}`;
     case 'theme': return `theme:${a.theme}`;
     case 'tour': return `tour:${a.play ? 'play' : 'stop'}`;
+    case 'chains': return `chains:${a.only.join(',') || 'all'}`;
+    case 'spin': return `spin:${a.on ? 'on' : 'off'}`;
+    case 'open': return `open:${a.id}`;
     default: return a.kind;
   }
 };
@@ -121,6 +124,31 @@ const COMMANDS = [
   ['play the tour and hide the waters', 'tour:play hide:waters'],
   ['hide the inspector', 'inspector:false'],
   ['open the inspector', 'inspector:true'],
+  // Only some chains, spin, zoom
+  ['show only chain A', 'chains:A'],
+  ['hide everything except chain B', 'chains:B'],
+  ['isolate chain A', 'chains:A'],
+  ['just chains A and B', 'chains:A,B'],
+  ['show all chains', 'chains:all'],
+  ['spin', 'spin:on'],
+  ['rotate it', 'spin:on'],
+  ['turn it around', 'spin:on'],
+  ['stop spinning', 'spin:off'],
+  ['zoom in', 'zoom'],
+  ['make it bigger', 'zoom'],
+  ['hide all ligands', 'hide:ligands'],
+  // An entry by its ID, the file, a link, a fresh chat
+  ['open 4HHB', 'open:4HHB'],
+  ['load 1hsg', 'open:1HSG'],
+  ['1hsg', 'open:1HSG'],
+  ['show me 1hsg as a surface', 'open:1HSG shape:surface'],
+  ['download the structure', 'download'],
+  ['save the pdb file', 'download'],
+  ['save a picture of the structure', 'picture'],
+  ['share this', 'share'],
+  ['copy the link', 'share'],
+  ['clear chat', 'clear-chat'],
+  ['start over', 'clear-chat'],
 ];
 for (const [text, want] of COMMANDS) {
   const got = parse(text);
@@ -136,7 +164,6 @@ const QUESTIONS = [
   'hydrophobic residues',
   'explain the active site',
   'make it blue',
-  'zoom in',
   'select the active site',
   'how does this protein bind zinc?',
   'surface residues near the pocket',
@@ -162,6 +189,16 @@ const QUESTIONS = [
   'walk through the active site',
   'guided tour of residues 20 to 40',
   'tour of the highlighted parts',
+  // Isolating a part, zooming to one, IDs that are numbers, files without "save"
+  'show just the ligand',
+  'show only the ligands',
+  'isolate the heme',
+  'zoom in on the ligand',
+  'which chain is bigger?',
+  'opacity 1000',
+  'what is in the pdb file?',
+  'only chain',
+  'show me 1hsg and explain it',
 ];
 for (const text of QUESTIONS) {
   const got = parse(text);
@@ -189,6 +226,21 @@ for (const text of [
   'the contour of its surface',
   'a detour through the literature',
 ]) check(`"${text}" does not`, A.asksForTour(text) === false);
+
+console.log('== What Argus can\'t do is said, not skipped');
+const cant = (text) => A.unsupportedAsks(text).map(r => `${r.label}${r.ok ? '' : ' x'}`).join(' | ');
+for (const [text, want] of [
+  ['colour the zinc ions red', "Couldn't colour it red x"],
+  ['make it blue', "Couldn't colour it blue x"],
+  ['make the ligand green please', "Couldn't colour it green x"],
+  ['highlight the heme in yellow', "Couldn't colour it yellow x"],
+  ['show labels', "Couldn't show labels x"],
+  ['label the active site residues', "Couldn't show labels x"],
+  ['color chain A orange and add labels', "Couldn't colour it orange x | Couldn't show labels x"],
+]) check(`"${text}" -> ${want}`, cant(text) === want, cant(text));
+for (const text of ['why is blood red?', 'colour by chain', 'what does this label mean?', 'show me the green fluorescent protein', 'explain the active site'])
+  check(`"${text}" asks for nothing Argus can't do`, cant(text) === '', cant(text));
+check('a reason comes with it', /colourings are by element, chain/.test(A.unsupportedAsks('make it blue')[0]?.note ?? ''));
 
 console.log('== While a tour plays, short words steer it (no AI call)');
 const CONTROLS = [
@@ -235,5 +287,9 @@ check('an overlay: a PDB ID or the AlphaFold model, canonical', norm(['Overlay:1
 check('...anything else dropped', norm(['overlay:12', 'overlay:abcde', 'overlay:0abc', 'overlay:', 'overlay:constructor']) === '[]', norm(['overlay:12', 'overlay:abcde', 'overlay:0abc', 'overlay:', 'overlay:constructor']));
 check('...one tool per answer, an overlay counting as one (the last wins)', norm(['tool:pockets', 'overlay:1ake']) === '["overlay:1ake"]' && norm(['overlay:1ake', 'tool:interactions']) === '["tool:interactions"]', norm(['tool:pockets', 'overlay:1ake']));
 check('"tool:overlay" (the picker) is not an answer action', norm(['tool:overlay']) === '[]');
+check('only some chains, spin, zoom in: answer actions', norm(['chains:A-B', 'spin:on', 'zoom:in']) === '["chains:a-b","spin:on","zoom:in"]', norm(['chains:A-B', 'spin:on', 'zoom:in']));
+check('...every chain again, spin off', norm(['chains:all', 'spin:off']) === '["chains:all","spin:off"]', norm(['chains:all', 'spin:off']));
+check('...junk chains dropped', norm(['chains:', 'chains:ab', 'chains:a-', 'zoom:out', 'spin:fast']) === '[]', norm(['chains:', 'chains:ab', 'chains:a-', 'zoom:out', 'spin:fast']));
+check('opening, files, links and clearing the chat are the user\'s own', [{ kind: 'open', id: '4HHB' }, { kind: 'download' }, { kind: 'share' }, { kind: 'clear-chat' }].every(a => A.actionToId(a) === null));
 
 console.log(failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`);
