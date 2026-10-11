@@ -1,5 +1,6 @@
 // The quiz card in the browser: shuffled options for one right answer, and "select all that apply"
-// (checkboxes, Check button, partly right / missed / correct) for several.
+// (checkboxes, Check button, partly right / missed / correct) for several; then how often a quiz comes
+// that nobody asked for. Scripted answers (no AI calls).
 import '../lib/ts-hooks.mjs';
 import { BASE, CHROME, OUT, ROOT_URL } from '../lib/env.mjs';
 import { spawn } from 'node:child_process';
@@ -18,15 +19,9 @@ const multi = { question: 'Which disulfide bonds link the A and B chains of insu
   answerHighlights: [{ chain: 'A', resi: [7, 20], label: 'Cys A7/A20', category: 'other' }, { chain: 'B', resi: [7, 19], label: 'Cys B7/B19', category: 'other' }] };
 const hiv = { pdbId: '1HSG', title: 'HIV-1 protease with indinavir (MK1)', measurements: [], summary: 'HIV-1 protease is a symmetric homodimer.', highlights: [{ chain: 'A', resi: [25], label: 'Catalytic Asp25', category: 'active_site' }], quiz: single };
 const insulin = { pdbId: '1TRZ', title: 'Human Insulin', measurements: [], summary: 'Two chains held together by disulfide bonds.', highlights: [{ chain: 'A', resi: [7], label: 'Cys A7', category: 'other' }], quiz: multi };
-const SEED = `(() => {
-  const hash = (str) => { let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; } return Math.abs(h).toString(36) + str.length; };
-  const cache = {};
-  for (const s of ['', '|grounded']) {
-    cache[hash('show me hiv protease with its drug' + '1TRZ' + s)] = { timestamp: Date.now(), data: ${JSON.stringify(hiv)} };
-    for (const ctx of ['1TRZ', '1HSG']) cache[hash('show me the bridges between insulin chains' + ctx + s)] = { timestamp: Date.now(), data: ${JSON.stringify(insulin)} };
-  }
-  localStorage.setItem('argus_analysis_cache', JSON.stringify(cache)); return true;
-})()`;
+// What the scripted AI says, and what the app asked it (the quiz flag included)
+const answerFor = (query) => (/hiv/i.test(query) ? hiv : insulin);
+const bodies = [];
 
 const port = 9500 + Math.floor(Math.random() * 300);
 const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${OUT}/chrome-profile-quiz-${Date.now()}`, '--window-size=1440,900', '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--no-first-run', 'about:blank'], { stdio: 'ignore' });
@@ -39,6 +34,11 @@ ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   if (m.method === 'Runtime.exceptionThrown') pageErrors.push(m.params.exceptionDetails.exception?.description?.split('\n')[0] ?? m.params.exceptionDetails.text);
+  if (m.method === 'Fetch.requestPaused') {
+    const body = JSON.parse(m.params.request.postData ?? '{}');
+    bodies.push(body);
+    send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify(answerFor(body.query ?? ''))).toString('base64') });
+  }
 });
 const send = (method, params = {}) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
 const ev = async (expression) => { const r = (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result; return r?.exceptionDetails ? `EXC ${r.exceptionDetails.exception?.description}` : r?.result?.value; };
@@ -65,15 +65,16 @@ const status = () => ev(`${card(`.querySelector('[role=status]')`)}?.innerText.r
 
 try {
   await send('Page.enable'); await send('Runtime.enable');
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/analyze*', requestStage: 'Request' }] });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
   if (THEME) await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('argus-theme', '${THEME}'); } catch (e) {}` });
   await send('Page.navigate', { url: `${BASE}/app` });
   await waitFor(`!!document.querySelector('textarea') && document.querySelector('[data-structure-id]')?.textContent.trim() === '1TRZ'`);
   await sleep(2500);
-  await ev(SEED);
 
+  // Each of these asks for its quiz, so none is held back for coming soon after another (part 6)
   console.log('\n[1] one right answer: shuffled, radio circles, instant result');
-  await say('Show me HIV protease with its drug');
+  await say('Quiz me on HIV protease with its drug');
   check('answer with a quiz shown', await waitFor(`document.querySelector('[data-structure-id]')?.textContent.trim() === '1HSG' && !!document.querySelector('[data-quiz]')`));
   await sleep(1500);
   let r = await rows();
@@ -93,7 +94,7 @@ try {
   await shot('quiz-single-wrong');
 
   console.log('\n[2] several right answers: checkboxes, Check button, partly right');
-  await say('Show me the bridges between insulin chains');
+  await say('Quiz me on the bridges between insulin chains');
   check('answer with a second quiz shown', await waitFor(`document.querySelector('[data-structure-id]')?.textContent.trim() === '1TRZ' && document.querySelectorAll('[data-quiz]').length === 2`));
   await sleep(1500);
   check('"Select all that apply" label shown', await ev(`${card(`.querySelector('[data-quiz-multi]')`)}?.textContent === 'Select all that apply'`));
@@ -133,7 +134,7 @@ try {
   await shot('quiz-multi-partly');
 
   console.log('\n[3] several right answers: all of them picked');
-  await say('Show me the bridges between insulin chains');
+  await say('Quiz me on the bridges between insulin chains');
   check('third quiz shown', await waitFor(`document.querySelectorAll('[data-quiz]').length === 3`));
   await sleep(1200);
   await clickOption('CysA20–CysB19');
@@ -149,7 +150,7 @@ try {
   await shot('quiz-multi-correct');
 
   console.log('\n[4] only right ones, but not all of them');
-  await say('Show me the bridges between insulin chains');
+  await say('Quiz me on the bridges between insulin chains');
   await waitFor(`document.querySelectorAll('[data-quiz]').length === 4`);
   await sleep(1200);
   await clickOption('CysA20–CysB19');
@@ -158,7 +159,7 @@ try {
   check('"Partly right · 1 of 2 found"', (await status())?.startsWith('Partly right · 1 of 2 found\n'), JSON.stringify(await status()));
 
   console.log('\n[5] only wrong ones');
-  await say('Show me the bridges between insulin chains');
+  await say('Quiz me on the bridges between insulin chains');
   await waitFor(`document.querySelectorAll('[data-quiz]').length === 5`);
   await sleep(1200);
   await clickOption('CysB7–CysB19');
@@ -167,6 +168,21 @@ try {
   check('"Not quite"', (await status())?.startsWith('Not quite\n'), JSON.stringify(await status()));
   const missed = (await rows()).filter(x => x.state === 'missed').length;
   check('both right ones shown as missed', missed === 2);
+
+  console.log('\n[6] how often: a quiz nobody asked for waits until two answers without one have gone by');
+  const answers = `document.querySelectorAll('[data-message="assistant"]').length`;
+  const quizzes = `document.querySelectorAll('[data-quiz]').length`;
+  const ask = async (text) => { const before = await ev(answers); await say(text); await waitFor(`${answers} > ${before}`); await sleep(800); };
+  const shown = await ev(quizzes);
+  await ask('Show me HIV protease with its drug'); // Every scripted answer comes with a quiz
+  check('right after a quiz, an answer comes without its quiz', (await ev(quizzes)) === shown, `${await ev(quizzes)} quiz cards, had ${shown}`);
+  check('...and the AI was told to leave it out', bodies.at(-1)?.quiz === false, JSON.stringify(bodies.at(-1)?.quiz));
+  await ask('Tell me about the insulin chain bridges');
+  check('one answer later, still none', (await ev(quizzes)) === shown && bodies.at(-1)?.quiz === false, `${await ev(quizzes)} quiz cards`);
+  await ask('What does HIV protease cut?');
+  check('two answers later, a quiz comes again', (await ev(quizzes)) === shown + 1 && bodies.at(-1)?.quiz === undefined, `${await ev(quizzes)} quiz cards`);
+  await ask('Quiz me on the bridges between insulin chains');
+  check('a quiz asked for comes even right after another', (await ev(quizzes)) === shown + 2 && bodies.at(-1)?.quiz === undefined, `${await ev(quizzes)} quiz cards`);
   check('no page errors', pageErrors.length === 0, JSON.stringify(pageErrors));
 } finally { ws.close(); chrome.kill(); }
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);

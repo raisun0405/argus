@@ -87,7 +87,8 @@ try {
 
   console.log('[2. a question that asks for no tour]');
   const calls = b.calls.length;
-  check('answered', await ask('explain how the chains are held together', 'plain'));
+  // Its quiz is asked for: one nobody asked for would be held back this soon after the journey's
+  check('answered', await ask('quiz me on how the chains are held together', 'plain'));
   const p = tagged('plain');
   await sleep(1500);
   check('its tour waits to be played', (await b.ev(tourState(p))) === 'ready' && !(await b.ev(`!!${headerButton('Stop the tour')}`)), await b.ev(tourState(p)));

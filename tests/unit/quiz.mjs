@@ -118,5 +118,21 @@ const strips = [
 ];
 for (const [input, want] of strips) check(JSON.stringify(input), Q.quizQuestion(input) === want, JSON.stringify(Q.quizQuestion(input)));
 
+console.log('\n[8] how often: a quiz nobody asked for waits until two answers without one have gone by');
+for (const text of ['Quiz me on Human insulin', 'give me a quiz', 'test me on the active site', 'can you check my understanding?', 'ask me some questions about it', 'Ask me a question'])
+  check(`"${text}" asks for a quiz`, Q.asksForQuiz(text) === true);
+for (const text of ['explain how hemoglobin carries oxygen', 'what question does this structure answer?', 'is 1HSG a good test case?', 'show me the binding site'])
+  check(`"${text}" does not`, Q.asksForQuiz(text) === false);
+const withQuiz = { quiz: { question: 'Q?' } }, plain = {};
+check('the first answer may have one', Q.quizWelcome([]) === true);
+check('not right after one', Q.quizWelcome([withQuiz]) === false);
+check('not one answer later', Q.quizWelcome([withQuiz, plain]) === false);
+check('two answers later it may', Q.quizWelcome([withQuiz, plain, plain]) === true);
+check('only the last two answers count', Q.quizWelcome([withQuiz, withQuiz, plain, plain]) === true && Q.quizWelcome([plain, plain, withQuiz]) === false);
+const full = answer({ ...base, correctAnswerIndex: 0 });
+const bare = Q.withoutQuiz(full);
+check('withoutQuiz drops the quiz and keeps the rest', !('quiz' in bare) && bare.pdbId === '1TRZ' && 'quiz' in full);
+check('...and returns an answer without one as it is', Q.withoutQuiz(bare) === bare);
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);
 process.exit(failures ? 1 : 0);

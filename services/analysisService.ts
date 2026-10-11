@@ -100,9 +100,10 @@ export const analyzeProteinQuery = async (
     readCache?: boolean;
     writeCache?: boolean;
     onRateLimitWait?: (seconds: number) => void; // The AI is rate-limited: retrying once after this wait
+    quiz?: boolean; // false: the app would leave a quiz out (services/quiz.ts), so the AI needn't write one
   } = {}
 ): Promise<ProteinAnalysis> => {
-  const { readCache = true, writeCache = true, onRateLimitWait } = options;
+  const { readCache = true, writeCache = true, onRateLimitWait, quiz } = options;
   try {
     // 1. Cache check
     const cacheKey = cacheKeyFor(query, currentContext, structureFacts);
@@ -119,7 +120,7 @@ export const analyzeProteinQuery = async (
     const post = () => fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, currentContext: context, ...(structureFacts ? { structureFacts } : {}) }),
+      body: JSON.stringify({ query, currentContext: context, ...(structureFacts ? { structureFacts } : {}), ...(quiz === false ? { quiz: false } : {}) }),
     });
     let response = await post();
 

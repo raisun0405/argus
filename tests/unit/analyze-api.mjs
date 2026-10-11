@@ -98,4 +98,14 @@ check('13th request -> 429', statuses[12] === 429, String(statuses[12]));
 check('429 carries Retry-After', Number(limited.headers.get('retry-after')) > 0, String(limited.headers.get('retry-after')));
 check('another visitor still allowed', (await call({ query: 'x' }, { ip: '203.0.113.8' })).status === 200);
 
+// 8. the app says when it would leave a quiz out (services/quiz.ts): the AI is told not to write one
+const userPrompt = () => lastAiBody?.messages?.[1]?.content ?? '';
+await call({ query: 'explain the active site', quiz: false });
+const asked = /Do not include a "quiz" in this answer/.test(userPrompt());
+check('quiz: false -> the prompt asks for no quiz', asked, asked ? '' : userPrompt().slice(-160));
+await call({ query: 'explain the active site' });
+check('no flag -> no such line', !/Do not include a "quiz"/.test(userPrompt()));
+await call({ query: 'explain the active site', quiz: 'false' });
+check('only the boolean false counts', !/Do not include a "quiz"/.test(userPrompt()));
+
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

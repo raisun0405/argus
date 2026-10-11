@@ -231,7 +231,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Parse body
-  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown };
+  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -301,9 +301,12 @@ ${groundingRule}
 `
     : '';
 
+  // The app spaces quizzes out (services/quiz.ts) and says when it would leave one out: no tokens on it
+  const quizNote = body.quiz === false ? 'Do not include a "quiz" in this answer: the user had one a moment ago.\n\n' : '';
+
   const userPrompt = `${contextPrompt}Query: "${query}"
 
-Output the JSON analysis object now.`;
+${quizNote}Output the JSON analysis object now.`;
 
   // API key from server env (Vercel injects at runtime)
   const apiKey = process.env.NEBIUS_API_KEY;

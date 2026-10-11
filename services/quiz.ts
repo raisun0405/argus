@@ -1,4 +1,4 @@
-import type { Quiz } from '../types';
+import type { ProteinAnalysis, Quiz } from '../types';
 
 // --- QUIZ ---
 // The quiz card's rules that don't belong in the component: the order its options are shown in, which
@@ -47,4 +47,27 @@ export const markQuiz = (right: number[], picked: number[]): 'correct' | 'partly
   const hits = [...chosen].filter(i => isRight.has(i)).length;
   if (hits === isRight.size && chosen.size === isRight.size) return 'correct';
   return hits > 0 ? 'partly' : 'wrong';
+};
+
+// --- HOW OFTEN ---
+// The AI writes a quiz for nearly every answer that explains how something works, which is most of
+// what people ask, so a few questions in a row brought a question under every answer (3 of 6 answers
+// in a check on 2026-10-11, two of them back to back). Each request stands alone, so the AI can't
+// space them out itself: the app does. A quiz the user didn't ask for is left out while one of the
+// last QUIZ_GAP answers had one; a quiz asked for ("Quiz me on...", "test me") is always kept.
+
+export const QUIZ_GAP = 2;
+
+const QUIZ_ASKED = /\b(?:quiz|quizzes|test me|test us|test my|question me|check my understanding|ask me (?:a |some )?questions?)\b/i;
+
+/** The user asks to be quizzed. */
+export const asksForQuiz = (text: string): boolean => QUIZ_ASKED.test(text.replace(/\s+/g, ' '));
+
+/** Whether an answer may come with a quiz nobody asked for, given the answers shown before it (oldest first). */
+export const quizWelcome = (earlier: { quiz?: unknown }[]): boolean => !earlier.slice(-QUIZ_GAP).some(answer => answer.quiz);
+
+/** The answer without its quiz. */
+export const withoutQuiz = (answer: ProteinAnalysis): ProteinAnalysis => {
+  const { quiz, ...rest } = answer;
+  return quiz ? rest : answer;
 };

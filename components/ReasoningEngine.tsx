@@ -4,6 +4,7 @@ import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchR
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
 import { FIREWALL_MESSAGE } from '../services/http';
 import QuizCard from './QuizCard';
+import { asksForQuiz, quizWelcome, withoutQuiz } from '../services/quiz';
 import ThemeSwitcher from './ThemeSwitcher';
 import SimilarStructuresCard from './SimilarStructuresCard';
 import PartnersCard from './PartnersCard';
@@ -523,7 +524,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         activeRequestRef.current = 0; // The timed phases would overwrite this message
         setLoadingPhase(`The AI is busy, trying again in ${seconds} s…`);
       };
-      let analysis = await analyzeProteinQuery(userQuery, currentAnalysis, structureFacts, { writeCache: false, onRateLimitWait });
+      // A quiz nobody asked for waits until two answers without one have gone by (services/quiz). It
+      // goes before the checks, which would otherwise count the residues of a quiz never shown
+      const quizAllowed = asksForQuiz(userQuery) || quizWelcome(messages.flatMap(m => (m.data ? [m.data] : [])));
+      const keepQuiz = (answer: ProteinAnalysis) => (quizAllowed ? answer : withoutQuiz(answer));
+      let analysis = keepQuiz(await analyzeProteinQuery(userQuery, currentAnalysis, structureFacts, { writeCache: false, onRateLimitWait, quiz: quizAllowed }));
 
       // API returned. Stop background updates.
       activeRequestRef.current = 0;
@@ -572,7 +577,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
           problems: inspection ? inspection.missing + inspection.wrong + inspection.misnamed : 0,
         };
         try {
-          const repaired = await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait });
+          const repaired = keepQuiz(await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait, quiz: quizAllowed }));
           const remaining = await checkAnswer(repaired);
           const remainingIdentity = await checkIdentity(repaired);
           let outcome: 'kept' | 'first' | 'unverified';
