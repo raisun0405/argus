@@ -35,7 +35,7 @@ const model = (acc) => fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-mod
 {
   const base = await model('P68871');
   const t0 = Date.now();
-  const r = await loadAlphaFill('P68871', base);
+  const r = await loadAlphaFill('P68871');
   console.log(`  HBB (${Date.now() - t0} ms, skipped ${r.skipped}):\n    ${show(r)}`);
   const heme = r.transplants.find(t => t.compound === 'HEM');
   check('heme placed, high confidence', heme?.confidence === 'high');
@@ -61,7 +61,7 @@ const model = (acc) => fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-mod
   check('that ligand sits on the iron (< 2.6 Å)', feToGas < 2.6, `${feToGas.toFixed(2)} Å`);
   const bpg = r.transplants.find(t => t.compound === 'DG2');
   if (bpg) check('2,3-BPG named and between the beta N-terminus and Lys83', bpg.name === '2,3-Bisphosphoglycerate' && bpg.contacts.includes('A:Lys83'), bpg.contacts.join(' '));
-  const again = await loadAlphaFill('p68871', base);
+  const again = await loadAlphaFill('p68871');
   check('second call served from memory', again === r);
   const facts = alphaFillFactsLine('AF-P68871-F1');
   console.log('  facts:', facts);
@@ -71,7 +71,7 @@ const model = (acc) => fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-mod
 // p53: the structural zinc on Cys176, His179, Cys238, Cys242
 {
   const base = await model('P04637');
-  const r = await loadAlphaFill('P04637', base);
+  const r = await loadAlphaFill('P04637');
   console.log(`  TP53 (skipped ${r.skipped}):\n    ${show(r)}`);
   const atoms = atomsOf(r.pdb);
   const zn = atoms.filter(a => a.het && a.resn === 'ZN');
@@ -85,7 +85,7 @@ const model = (acc) => fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-mod
 {
   const base = await model('P00533');
   const t0 = Date.now();
-  const r = await loadAlphaFill('P00533', base);
+  const r = await loadAlphaFill('P00533');
   console.log(`  EGFR (${Date.now() - t0} ms, skipped ${r.skipped}):\n    ${show(r)}`);
   check('EGFR: transplants placed despite the different frame', r.transplants.length > 0);
   const nucleotide = r.transplants.find(t => ['ATP', 'ADP', 'ANP', 'ACP'].includes(t.compound));
@@ -96,7 +96,7 @@ const model = (acc) => fetch(`https://alphafold.ebi.ac.uk/files/AF-${acc}-F1-mod
 
 // No AlphaFill entry (SARS-CoV-2 polyprotein)
 {
-  const r = await loadAlphaFill('P0DTD1', 'HEADER    DUMMY\nEND\n');
+  const r = await loadAlphaFill('P0DTD1');
   check('protein without an AlphaFill entry -> null', r === null);
 }
 

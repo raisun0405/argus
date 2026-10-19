@@ -544,6 +544,8 @@ const LABEL = str(300);
 const CONTACT = obj<CofoldContact>({ chain: CHAIN, resi: int(-9999, 99999), icode: ICODE, resn: RESN, distance: num(0, 100) });
 const CONTACTS = arr(CONTACT, 500);
 const SCORE = nullable(num(-1e4, 1e4));
+const SCORES = obj<CofoldScores>({ confidence: SCORE, ptm: SCORE, iptm: SCORE, ligandIptm: SCORE, proteinIptm: SCORE, plddt: SCORE, iplddt: SCORE, pde: SCORE, ipde: SCORE });
+const AFFINITY = nullable(obj<{ log10Ic50: number; binderProbability: number }>({ log10Ic50: num(-20, 20), binderProbability: num(0, 1) }));
 const RESULT: Check<CofoldResult> = lazy(() => obj<CofoldResult>({
   id: str(20, COFOLD_ID),
   request: obj({
@@ -569,8 +571,8 @@ const RESULT: Check<CofoldResult> = lazy(() => obj<CofoldResult>({
     'interactionsShared?': int(0, 1000), 'interactionsTotal?': int(0, 1000),
   }),
   'interactions?': arr(obj({ type: str(30), partners: arr(str(40), 100) }), 20),
-  scores: obj({ confidence: SCORE, ptm: SCORE, iptm: SCORE, ligandIptm: SCORE, proteinIptm: SCORE, plddt: SCORE, iplddt: SCORE, pde: SCORE, ipde: SCORE }),
-  affinity: nullable(obj({ log10Ic50: num(-20, 20), binderProbability: num(0, 1) })),
+  scores: SCORES,
+  affinity: AFFINITY,
   contacts: CONTACTS,
   proteinRmsd: nullable(num(0, 1000)),
   meanPlddt: num(0, 100),
@@ -600,6 +602,35 @@ export const restoreCofold = (raw: unknown): CofoldResult | null => {
   const id = result.id.toUpperCase();
   predictions.set(id, { ...result, id });
   return predictions.get(id)!;
+};
+
+// The server's answer (api/cofold.ts), checked before it is placed and shown: a reply missing a field
+// is a readable failure, not "Cannot read properties of undefined". Fields the code has defaults for
+// may be missing
+const SERVER = obj<ServerResult>({
+  pdb: str(5_000_000),
+  chains: arr(obj({ id: CHAIN, length: int(1, 100_000) }), 26),
+  ligand: obj({ chain: CHAIN, resn: RESN }),
+  cofactors: arr(obj({ chain: CHAIN, resn: RESN }), 50),
+  scores: SCORES,
+  'affinity?': AFFINITY,
+  'template?': nullable(str(40)),
+  'pocketResidues?': int(0, 1000),
+  'seconds?': num(0, 1e6),
+});
+
+/** The server's answer to a prediction, checked; throws what went wrong when it isn't one. */
+export const readServerResult = (text: string, status: number): ServerResult => {
+  let raw: any;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error(`the co-folding server answered ${status} without a result`);
+  }
+  if (raw?.error) throw new Error(String(raw.error)); // Its failures come as an error message
+  const server = SERVER(raw);
+  if (server === FAIL || !/^ATOM {2}/m.test(server.pdb)) throw new Error('the co-folding server sent an incomplete result');
+  return server;
 };
 
 /** The structure on screen the request was made from, as PDB text. */
@@ -772,16 +803,10 @@ export const runCofold = (request: CofoldRequest, onStatus: (status: string) => 
       clearInterval(timer);
     }
     if (stopped) throw new Error(FIREWALL_REASON);
-    let server: any;
-    try {
-      server = JSON.parse(text);
-    } catch {
-      throw new Error(`the co-folding server answered ${status} without a result`);
-    }
-    if (!server || server.error || typeof server.pdb !== 'string') throw new Error(server?.error ?? 'the co-folding server sent no structure');
+    const server = readServerResult(text, status);
 
     onStatus('Placing the prediction onto the structure…');
-    const placed = placePrediction(server as ServerResult, ligand, request, await sourceStructure(request));
+    const placed = placePrediction(server, ligand, request, await sourceStructure(request));
     const id = `COFOLD-${hash(JSON.stringify([request.source, ligand.code ?? ligand.smiles, request.cofactors, request.pocket?.residues]))}`;
     // Did the pose land where it was steered?
     const asked = request.pocket;

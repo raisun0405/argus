@@ -1,6 +1,7 @@
 import { BoundedMap, fetchOrNull, memoize } from './http';
 import { fetchSiftsMapping, fetchUniProtSequence, loadUniProtResidueMap, variantKey } from './variantService';
-import type { StructureModel } from './structureModel';
+import { fetchPdbFile } from './structureFiles';
+import { parseStructure } from './structureModel';
 
 // --- COVERAGE ---
 // Which part of its protein the structure on screen holds. An experimental entry often holds only part
@@ -72,10 +73,14 @@ export const percent = (part: number, whole: number) => (part >= whole ? 100 : M
 
 const entryCache = new BoundedMap<string, Promise<EntryCoverage[]>>(20);
 
-/** For each UniProt protein in an experimental entry, the part of it the file holds (most residues first). */
-export const entryCoverage = (pdbId: string, model: StructureModel): Promise<EntryCoverage[]> =>
+/**
+ * For each UniProt protein in an experimental entry, the part of it the file holds (most residues
+ * first). Read from the entry's own file (cached, the one the viewer shows), so what is kept under the
+ * entry's ID can only ever be that entry's.
+ */
+export const entryCoverage = (pdbId: string): Promise<EntryCoverage[]> =>
   memoize(entryCache, pdbId.toLowerCase(), async () => {
-    const proteins = await fetchSiftsMapping(pdbId);
+    const [proteins, model] = await Promise.all([fetchSiftsMapping(pdbId), fetchPdbFile(pdbId).then(parseStructure)]);
     const found = await Promise.all(proteins.map(async (protein): Promise<EntryCoverage | null> => {
       const [map, sequence] = await Promise.all([loadUniProtResidueMap(pdbId, protein.accession), fetchUniProtSequence(protein.accession)]);
       const length = sequence.length;

@@ -312,7 +312,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
 
   // AlphaFill: ligands copied into the AlphaFold model on screen from related PDB structures
   const [alphaFill, setAlphaFill] = useState<AlphaFillResult | null>(null);
-  const afBasePdbRef = useRef<string | null>(null); // The AlphaFold DB file before the ligands are added
   const skipZoomRef = useRef(false); // Adding the ligands rebuilds the model; the camera stays where it is
   const framedStructureRef = useRef<string | null>(null); // The structure the camera has already given its whole view
   const framedContentRef = useRef<string | null>(null); // ...and the file it was showing then
@@ -406,7 +405,9 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const coverageWanted = Boolean(coverageKey) && (openSections.includes('coverage') || Boolean(afAccession));
   const coverageStarted = useRef<string | null>(null);
   useEffect(() => {
-    // An entry's coverage is counted from its own file: never from the one still on screen from before
+    // Counted from the entry's own file (entryCoverage loads it, from the viewer's cache), but started only
+    // once the structure it describes is on screen: its stretches select residues in that structure, and
+    // a click while the one from before is still drawn would select in the wrong one
     if (!coverageKey || !coverageWanted || !model || contentIdRef.current !== structureId) return;
     const key = `${coverageKey}|${coverageRetry}`;
     if (coverageStarted.current === key) return;
@@ -418,13 +419,13 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       const fromPdb = afView?.fromPdb;
       Promise.all([
         experimentalCoverage(afAccession),
-        fromPdb ? fetchPdbFile(fromPdb).then(text => entryCoverage(fromPdb, parseStructure(text))).then(list => list.find(c => c.accession === afAccession) ?? null) : Promise.resolve(null),
+        fromPdb ? entryCoverage(fromPdb).then(list => list.find(c => c.accession === afAccession) ?? null) : Promise.resolve(null),
       ]).then(([experimental, source]) => {
         rememberExperimentalCoverage(alphaFoldId(afAccession), experimental);
         done({ status: 'model', experimental, ...(fromPdb ? { source: { id: fromPdb, coverage: source } } : {}) });
       }, failed);
     } else {
-      entryCoverage(pdbId, model).then(proteins => done({ status: 'entry', proteins }), failed);
+      entryCoverage(pdbId).then(proteins => done({ status: 'entry', proteins }), failed);
     }
   }, [coverageKey, coverageWanted, coverageRetry, model]);
   const coverageState: CoverageState | null = coverage && coverage.key === coverageKey ? coverage.state : null;
@@ -939,7 +940,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           if (!result) throw new Error(`No AlphaFold model is available for ${afAccession}.`);
           if (isMounted) {
             contentIdRef.current = structureId;
-            afBasePdbRef.current = result.pdb;
             setEsmModel(null);
             setCofoldModel(null);
             setAfModel(result.model);
@@ -1032,10 +1032,9 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   // (each fitted onto its site in this model) without moving the camera
   useEffect(() => {
     const accession = afModel?.accession;
-    const base = afBasePdbRef.current;
-    if (!accession || !base || contentIdRef.current !== structureId) return;
+    if (!accession || contentIdRef.current !== structureId) return;
     let isMounted = true;
-    loadAlphaFill(accession, base)
+    loadAlphaFill(accession)
       .then(result => {
         if (!isMounted || !result || contentIdRef.current !== structureId) return;
         setAlphaFill(result);

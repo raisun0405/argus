@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, CofoldResult, TourStep, Quiz } from '../types';
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
-import { FIREWALL_MESSAGE } from '../services/http';
+import { FIREWALL_MESSAGE, untilAborted } from '../services/http';
 import QuizCard from './QuizCard';
 import { asksForAnotherQuiz, asksForQuiz, quizWelcome, withoutQuiz } from '../services/quiz';
 import ThemeSwitcher from './ThemeSwitcher';
@@ -101,6 +101,14 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   };
   const [loadingPhase, setLoadingPhase] = useState<string | null>(null); // New state for granular feedback
   const [loadingKind, setLoadingKind] = useState<'think' | 'work'>('think'); // An answer being written, or a tool running
+  const [stopWork, setStopWork] = useState<(() => void) | null>(null); // Ends the tool run under way (the loader's Stop)
+
+  /** A tool run the loader's Stop can end: its signal, and the Stop button set up for it. */
+  const stoppableRun = () => {
+    const controller = new AbortController();
+    setStopWork(() => () => controller.abort());
+    return controller.signal;
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1035,9 +1043,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Sending the structure to Foldseek…');
+    // Foldseek's queue can hold a search for minutes: Stop ends it, polling and all
+    const signal = stoppableRun();
 
     try {
-      const result = await searchSimilarStructures(query, status => setLoadingPhase(status));
+      const result = await searchSimilarStructures(query, status => { if (!signal.aborted) setLoadingPhase(status); }, signal);
       const families = result.proteins.length;
       const experimental = result.experimental.length;
       const content = families + experimental > 0
@@ -1047,9 +1057,12 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     } catch (error: any) {
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', notice: 'error', content: `Couldn't complete the structure search${error?.message ? ` (${error.message})` : ''}. Try again in a moment.` },
+        signal.aborted
+          ? { role: 'assistant', content: 'Stopped the structure search.' }
+          : { role: 'assistant', notice: 'error', content: `Couldn't complete the structure search${error?.message ? ` (${error.message})` : ''}. Try again in a moment.` },
       ]);
     } finally {
+      setStopWork(null);
       setBusy(false);
       setLoadingPhase(null);
     }
@@ -1077,9 +1090,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     setBusy(true);
     setLoadingKind('work');
     setLoadingPhase('Asking STRING for interaction partners…');
+    // Stop ends the wait; the search itself finishes for the workspace's Partners, which share it
+    const signal = stoppableRun();
 
     try {
-      const result = await findPartners(query, status => setLoadingPhase(status));
+      const result = await untilAborted(findPartners(query, status => { if (!signal.aborted) setLoadingPhase(status); }), signal);
       const solved = result.partners.filter(p => p.bestComplex).length;
       const content = result.partners.length > 0
         ? `STRING lists ${result.partners.length} interaction ${result.partners.length === 1 ? 'partner' : 'partners'} of ${result.name}` +
@@ -1091,9 +1106,12 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
     } catch (error: any) {
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', notice: 'error', content: `Couldn't look up interaction partners${error?.message ? ` (${error.message})` : ''}.` },
+        signal.aborted
+          ? { role: 'assistant', content: 'Stopped the partner search.' }
+          : { role: 'assistant', notice: 'error', content: `Couldn't look up interaction partners${error?.message ? ` (${error.message})` : ''}.` },
       ]);
     } finally {
+      setStopWork(null);
       setBusy(false);
       setLoadingPhase(null);
     }
@@ -1747,6 +1765,7 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
                 kind={demo.loader ?? loadingKind}
                 phase={demo.loader === 'work' ? 'Boltz-2 is predicting Benzamidine with Beta-trypsin… 12 s' : demo.loader === 'think' ? 'Synthesizing analysis…' : (loadingPhase || 'Thinking…')}
                 look={look}
+                onStop={demo.loader ? undefined : stopWork ?? undefined}
               />
             )}
 

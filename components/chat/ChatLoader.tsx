@@ -54,7 +54,21 @@ interface ChatLoaderProps {
   kind: 'think' | 'work'; // An answer being written, or a tool running
   phase: string;
   look: ChatLook;
+  onStop?: () => void; // A tool run that can be stopped (a search that may wait minutes in a queue)
 }
+
+/** Stop, under the step: outside the live region, so a screen reader hears the steps, not the button. */
+const StopButton: React.FC<{ onStop: () => void; indent: string }> = ({ onStop, indent }) => (
+  <button
+    type="button"
+    data-stop
+    onClick={onStop}
+    className={`${indent} h-7 touch:h-9 px-2.5 inline-flex items-center gap-1.5 rounded-md border border-line bg-canvas/50 text-[12px] touch:text-[13px] font-medium text-ink-muted hover:border-line-2 hover:text-ink-strong transition-colors`}
+  >
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+    Stop
+  </button>
+);
 
 // What a screen reader is told: the step without its clock ("…with Beta-trypsin… 12 s" counts up once a
 // second, and a live region would read every tick). The shown line keeps the clock and is hidden from it
@@ -62,9 +76,22 @@ const Spoken: React.FC<{ phase: string }> = ({ phase }) => <span className="sr-o
 
 /**
  * What the chat shows while it waits: an orb (the answer's or the tool's) and the current step as a
- * shimmering line. Tool runs also get a sliding strip, since they take tens of seconds.
+ * shimmering line. Tool runs also get a sliding strip, since they take tens of seconds, and Stop when
+ * they can be stopped.
  */
-const ChatLoader: React.FC<ChatLoaderProps> = ({ kind, phase, look }) => {
+const ChatLoader: React.FC<ChatLoaderProps> = ({ onStop, ...props }) => {
+  if (!onStop) return <Loader {...props} />;
+  // The button lines up with the step's text: past the orb and its gap
+  const indent = props.look.loader === 'pill' ? 'ml-1' : props.look.loader === 'avatar' ? 'ml-11' : 'ml-[30px]';
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <Loader {...props} />
+      <StopButton onStop={onStop} indent={indent} />
+    </div>
+  );
+};
+
+const Loader: React.FC<Omit<ChatLoaderProps, 'onStop'>> = ({ kind, phase, look }) => {
   const orb = kind === 'think' ? look.thinkingOrb : look.workingOrb;
   const label = kind === 'think' ? 'Working on an answer' : 'Running a tool';
 

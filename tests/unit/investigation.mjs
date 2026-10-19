@@ -206,5 +206,61 @@ const t0 = Date.now();
 check('stopping: the slow step is skipped as stopped, quickly', byTool('pockets').status === 'skipped' && byTool('pockets').note === 'stopped' && Date.now() - t0 < 1500, `${byTool('pockets').status} ${byTool('pockets').note} ${Date.now() - t0} ms`);
 check('stopping: steps already done stay done', byTool('variants').status === 'done' && byTool('facts').status === 'done');
 
+console.log('\n[8] the work under a stopped or timed-out step stops too (D10)');
+// A tool that runs until its signal says stop, and says when it did
+const untilStopped = (seen) => (...args) => new Promise((_, reject) => {
+  const signal = args.at(-1);
+  seen.got = signal instanceof AbortSignal;
+  signal?.addEventListener('abort', () => { seen.stoppedAt = Date.now(); reject(new DOMException('Stopped', 'AbortError')); }, { once: true });
+});
+{
+  const seen = {};
+  const stop = new AbortController();
+  setTimeout(() => stop.abort(), 100);
+  const t = Date.now();
+  ({ done } = await run([{ tool: 'similar' }], { similar: untilStopped(seen) }, stop.signal));
+  check('Stop: the fold search gets a signal, and it fires', seen.got && seen.stoppedAt - t < 1000 && byTool('similar').note === 'stopped', JSON.stringify({ ...seen, ms: seen.stoppedAt - t }));
+}
+{
+  // Step budgets are a minute or two: shorten every wait of 10 s or more to 50 ms for this check
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => realSetTimeout(fn, ms >= 10_000 ? 50 : ms, ...rest);
+  try {
+    const pockets = {}, similar = {};
+    ({ done } = await run([{ tool: 'pockets' }, { tool: 'similar' }], { pockets: untilStopped(pockets), similar: untilStopped(similar) }));
+    check('timed out: the step fails with its reason...', byTool('pockets').status === 'failed' && /no answer after 100 s/.test(byTool('pockets').note) && byTool('similar').status === 'failed', `${byTool('pockets').status} ${byTool('pockets').note}`);
+    check('...and its work is told to stop (PrankWeb polling, Foldseek polling)', pockets.got && similar.got && Boolean(pockets.stoppedAt) && Boolean(similar.stoppedAt), JSON.stringify({ pockets, similar }));
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+}
+
+console.log('\n[9] the investigate call has a time limit, and Stop still ends it (D11)');
+{
+  const realFetch = globalThis.fetch;
+  const realTimeout = AbortSignal.timeout;
+  let sent = 0;
+  // A server that never answers, except by giving up when the request's signal says so
+  globalThis.fetch = (url, init) => new Promise((_, reject) => {
+    sent++;
+    init.signal.addEventListener('abort', () => reject(init.signal.reason ?? new DOMException('Aborted', 'AbortError')), { once: true });
+  });
+  AbortSignal.timeout = ms => realTimeout.call(AbortSignal, ms >= 10_000 ? 80 : ms); // The 45 s limit, made short
+  try {
+    let t = Date.now();
+    const plan = await I.requestPlan('why?', { pdbId: '1TRZ', title: 'Insulin' }).then(() => 'answered', e => e?.name);
+    check('no answer: the call gives up at its limit (TimeoutError), so the investigation falls back', plan === 'TimeoutError' && Date.now() - t < 2000, `${plan} after ${Date.now() - t} ms`);
+    AbortSignal.timeout = realTimeout; // Back to 45 s: only Stop can end it now
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 100);
+    t = Date.now();
+    const stopped = await I.requestPlan('why?', { pdbId: '1TRZ', title: 'Insulin' }, undefined, stop.signal).then(() => 'answered', e => e?.name);
+    check('Stop ends a waiting call at once', stopped === 'AbortError' && Date.now() - t < 1000 && sent === 2, `${stopped} after ${Date.now() - t} ms, ${sent} sent`);
+  } finally {
+    globalThis.fetch = realFetch;
+    AbortSignal.timeout = realTimeout;
+  }
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);
 process.exit(failures ? 1 : 0);

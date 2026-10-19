@@ -1,4 +1,5 @@
 import { BoundedMap, FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
+import { FAIL, arr, bool, nullable, num, obj, oneOf, str } from './shape';
 
 // --- STRUCTURE QUALITY ---
 // How far to trust an experimental model, from its official wwPDB validation report (read by
@@ -52,6 +53,34 @@ export const formatValue = (m: QualityMetric) => `${m.key === 'rfree' ? m.value.
 export const qualityHeadline = (q: QualityReport) =>
   [METHOD_NAMES[q.method], q.resolution !== null ? `${q.resolution} Å` : '', q.rFree !== null ? `R-free ${q.rFree}` : ''].filter(Boolean).join(' · ');
 
+// What a report must look like before the panel draws it: a reply that didn't come from api/quality.ts
+// (a proxy's page, a changed format) is a readable failure, not a crash while drawing
+const PERCENTILE = nullable(num(0, 100));
+const SET_SIZE = nullable(num(0, 1e8));
+const REPORT = obj<QualityReport>({
+  id: str(4, /^[1-9][a-z0-9]{3}$/i),
+  'missing?': bool,
+  method: oneOf<QualityMethod>('xray', 'em', 'nmr', 'other'),
+  resolution: nullable(num(0, 1000)),
+  r: nullable(num(0, 100)),
+  rFree: nullable(num(0, 100)),
+  created: nullable(str(40)),
+  metrics: arr(obj<QualityMetric>({
+    key: oneOf<QualityMetricKey>('clashscore', 'rama', 'rota', 'rsrz', 'rfree'),
+    value: num(-1e6, 1e6),
+    absolute: PERCENTILE,
+    absoluteOf: SET_SIZE,
+    relative: PERCENTILE,
+    relativeOf: SET_SIZE,
+  }), 10),
+});
+
+/** A report as the page received it, checked: null when it isn't one. */
+export const readQualityReport = (body: unknown): QualityReport | null => {
+  const report = REPORT(body);
+  return report === FAIL ? null : report;
+};
+
 const cache = new BoundedMap<string, Promise<QualityReport>>(30);
 
 /** An experimental entry's validation summary (api/quality.ts reads the official report). */
@@ -62,7 +91,9 @@ export const fetchQuality = (pdbId: string): Promise<QualityReport> =>
     if (stoppedByFirewall(res)) throw new Error(FIREWALL_REASON);
     const body = await res.json().catch(() => null);
     if (!res.ok || !body) throw new Error(typeof body?.error === 'string' ? body.error.toLowerCase() : `the server answered ${res.status}`);
-    return body as QualityReport;
+    const report = readQualityReport(body);
+    if (!report) throw new Error('the quality report came back incomplete');
+    return report;
   });
 
 // --- For the chat ---

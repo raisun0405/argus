@@ -6,6 +6,8 @@ import '../lib/ts-hooks.mjs';
 import { ROOT_URL } from '../lib/env.mjs';
 import { gunzipSync } from 'node:zlib';
 const { default: handler } = await import(`${ROOT_URL}api/quality.ts`);
+const { readQualityReport } = await import(`${ROOT_URL}services/qualityService.ts`);
+const pageRefused = []; // Real reports the page's own check would turn away (it must take every one)
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail !== '' ? ' — ' + detail : ''}`); if (!ok) failures++; };
 let ip = 0;
@@ -45,6 +47,7 @@ check('an ID without a report is found to try', absent !== null);
 if (absent) {
   res = await get(absent);
   const r = await res.json();
+  if (!readQualityReport(r)) pageRefused.push(absent);
   check(`an entry without a report (${absent}) says so, kept only an hour (its report may come)`, r.missing === true && r.metrics.length === 0 && /s-maxage=3600(,|$)/.test(cacheOf(res)), cacheOf(res));
 }
 
@@ -59,6 +62,7 @@ for (const e of rcsb) {
   const res = await get(id);
   const q = await res.json();
   if (res.status !== 200 || q.missing) { check(`${e.rcsb_id}: a report`, false, `${res.status} ${JSON.stringify(q).slice(0, 80)}`); continue; }
+  if (!readQualityReport(q)) pageRefused.push(e.rcsb_id);
   methods.add(q.method);
   const g = e.pdbx_vrpt_summary_geometry?.[0] ?? {};
   const want = { clashscore: g.clashscore, rama: g.percent_ramachandran_outliers, rota: g.percent_rotamer_outliers, rsrz: e.pdbx_vrpt_summary_diffraction?.[0]?.percent_RSRZ_outliers };
@@ -88,6 +92,7 @@ for (const e of rcsb) {
 check('every raw value equals RCSB\'s (clashscore, Ramachandran, side-chain, RSRZ, resolution)', values > 30 && valuesOk === values, `${valuesOk} of ${values}`);
 check('every percentile and set size equals the report file\'s', percentiles > 60 && percentilesOk === percentiles, `${percentilesOk} of ${percentiles}`);
 check('X-ray, cryo-EM and NMR entries all covered', ['xray', 'em', 'nmr'].every(m => methods.has(m)), [...methods].join(', '));
+check('the page\'s own check takes every real report, missing ones included', pageRefused.length === 0, pageRefused.join(', '));
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASS');
 process.exit(failures ? 1 : 0);

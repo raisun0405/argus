@@ -23,7 +23,7 @@ check('rangesText caps long lists', cov.rangesText([[1, 2], [4, 4], [6, 7]], 2) 
 console.log('\n[an experimental entry: the residues in its file]');
 {
   const model = parseStructure(await pdb('1TUP'));
-  const c = await cov.entryCoverage('1TUP', model);
+  const c = await cov.entryCoverage('1TUP');
   const p53 = c.find(x => x.accession === 'P04637');
   // Independent answer: 1TUP numbers p53 like UniProt, so its protein chains' residue numbers are the positions
   const p53Chains = model.chains.filter(ch => ['A', 'B', 'C'].includes(ch.chain));
@@ -34,14 +34,14 @@ console.log('\n[an experimental entry: the residues in its file]');
   check('...DNA chains are no protein of it', c.every(x => !x.chains.includes('E') && !x.chains.includes('F')));
 }
 {
-  const c = await cov.entryCoverage('4HHB', parseStructure(await pdb('4HHB')));
+  const c = await cov.entryCoverage('4HHB');
   const hba = c.find(x => x.accession === 'P69905'), hbb = c.find(x => x.accession === 'P68871');
   check('4HHB: alpha holds 2–142 of 142, renumbered (file starts at 1)', R(hba?.ranges) === R([[2, 142]]) && hba.length === 142 && R(hba.missing) === R([[1, 1]]) && hba.renumbered, hba && `${cov.rangesText(hba.ranges)} of ${hba.length}, missing ${cov.rangesText(hba.missing)}`);
   check('...beta holds 2–147 of 147', R(hbb?.ranges) === R([[2, 147]]) && hbb.length === 147 && R(hbb.missing) === R([[1, 1]]), hbb && `${cov.rangesText(hbb.ranges)} of ${hbb.length}`);
 }
 {
   const model = parseStructure(await pdb('1TRZ'));
-  const c = await cov.entryCoverage('1TRZ', model);
+  const c = await cov.entryCoverage('1TRZ');
   const ins = c.find(x => x.accession === 'P01308');
   const byChain = id => model.chains.filter(ch => ch.chain === id).flatMap(ch => ch.residues.map(r => r.resi));
   const expected = cov.rangesOf([...new Set([...byChain('B').map(r => r + 24), ...byChain('D').map(r => r + 24), ...byChain('A').map(r => r + 89), ...byChain('C').map(r => r + 89)])].sort((a, b) => a - b));
@@ -53,7 +53,7 @@ console.log('\n[what experiments resolve: PDBe-KB vs the entries\' own files]');
   const all = await cov.experimentalCoverage('P04637');
   check('p53: of 393, from hundreds of entries', all?.length === 393 && all.entries > 100, all && `${all.entries} entries, ${cov.rangesText(all.ranges)} (${cov.percent(all.resolved, all.length)}%), never: ${cov.rangesText(all.missing)}`);
   // Every residue 1TUP holds must be among the resolved ones
-  const tup = (await cov.entryCoverage('1TUP', parseStructure(await pdb('1TUP')))).find(x => x.accession === 'P04637');
+  const tup = (await cov.entryCoverage('1TUP')).find(x => x.accession === 'P04637');
   const inAll = p => all.ranges.some(([a, b]) => p >= a && p <= b);
   check('...every residue of 1TUP is among them', tup.ranges.every(([a, b]) => { for (let p = a; p <= b; p++) if (!inAll(p)) return false; return true; }));
   // Per-entry: PDBe-KB's resolved stretches of an entry's best chain vs that chain's residues in the file

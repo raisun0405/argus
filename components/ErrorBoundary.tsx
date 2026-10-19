@@ -35,6 +35,17 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, {
   }
 }
 
+declare const __DEV_SERVER__: boolean; // vite.config.ts: true on the dev server, false in builds
+
+/**
+ * On the dev server only: a fault on demand inside a boundary, so a test can check the boundary holds
+ * (`window.__argusFault = 'workspace'`, then anything that redraws). Builds leave it out.
+ */
+export const TestFault: React.FC<{ name: string }> = ({ name }) => {
+  if (__DEV_SERVER__ && (window as { __argusFault?: string }).__argusFault === name) throw new Error(`${name} test fault`);
+  return null;
+};
+
 const WarningIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
 );

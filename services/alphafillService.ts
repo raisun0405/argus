@@ -1,5 +1,5 @@
 import { BoundedMap, fetchOrNull, memoize } from './http';
-import { parseAlphaFoldId } from './alphafoldService';
+import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { superpose, type Vec3 } from './superpose';
 import { parseAtomSite, type CifAtom } from './mmcif'; // AlphaFill serves its models as mmCIF
 
@@ -150,15 +150,18 @@ const results = new BoundedMap<string, Promise<AlphaFillResult | null>>(6); // A
 const loaded = new BoundedMap<string, AlphaFillResult>(6); // Finished results, read synchronously for the chat facts
 
 /**
- * AlphaFill's confident transplants for an AlphaFold model, moved into the model on screen
- * (`modelPdb`, the AlphaFold DB file Argus shows). Null when AlphaFill has no entry for the protein.
+ * AlphaFill's confident transplants for an AlphaFold model, moved into the model Argus shows (the
+ * AlphaFold DB file, loaded here from the cache the viewer shares, so what is kept under the accession
+ * can only ever belong to that model). Null when AlphaFill has no entry for the protein.
  */
-export const loadAlphaFill = (accession: string, modelPdb: string): Promise<AlphaFillResult | null> =>
+export const loadAlphaFill = (accession: string): Promise<AlphaFillResult | null> =>
   memoize(results, accession.toUpperCase(), async () => {
     const acc = accession.toUpperCase();
     const metaResponse = await fetchOrNull(`${ALPHAFILL_API}/${acc}/json`);
     if (!metaResponse) return null;
     const meta = await metaResponse.json();
+    const modelPdb = (await fetchAlphaFoldStructure(acc))?.pdb;
+    if (!modelPdb) return null;
 
     interface Candidate { compound: string; asym: string; sourcePdb: string; identity: number; localRmsd: number; clashScore: number; confidence: TransplantConfidence }
     const candidates: Candidate[] = [];

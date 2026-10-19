@@ -1,5 +1,7 @@
 // What the app does when something fails, each failure simulated for real. Scripted answers, no AI calls.
-//  1. R4  the 3D workspace hits a fault while drawing: it alone is replaced, the chat stays, Try again recovers
+//  1. D8  a broken quality report: its panel says it couldn't be read, nothing crashes
+//     R4  the 3D workspace hits a fault while drawing (the dev server's TestFault): it alone is replaced, the
+//         chat stays, Try again recovers
 //  2. R4  the boundary itself: catches, shows its note, retries, resets, reports; the three notes render
 //  3. D4  the structure download stalls: an error with Try again after ~20 s, not "loading" forever
 //  4. P5  a second answer that can't be checked doesn't replace a first that could, and nothing claims "Fixed"
@@ -17,8 +19,8 @@ const answers = `document.querySelectorAll('[data-message="assistant"]').length`
 const LAST = `[...document.querySelectorAll('[data-message="assistant"]')].at(-1)`;
 const visible = sel => `(() => { const el = document.querySelector(${JSON.stringify(sel)}); return !!el && el.getBoundingClientRect().width > 0; })()`;
 
-// --- 1. The 3D workspace fails while drawing ---
-console.log('[1. the 3D workspace hits a fault while drawing]');
+// --- 1. A broken quality report, then the 3D workspace failing while drawing ---
+console.log('[1. a broken quality report, then the 3D workspace hits a fault while drawing]');
 {
   let breakQuality = false;
   const reports = [];
@@ -33,7 +35,7 @@ console.log('[1. the 3D workspace hits a fault while drawing]');
         return send('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: 204 });
       }
       if (url.includes('/api/quality') && breakQuality) {
-        // A report missing its metrics: the Quality panel draws them without checking
+        // A report missing its metrics: it once crashed the Quality panel while drawing (D8)
         const body = Buffer.from(JSON.stringify({ id: '4hhb', method: 'xray', resolution: 1.74 })).toString('base64');
         return send('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body });
       }
@@ -50,20 +52,35 @@ console.log('[1. the 3D workspace hits a fault while drawing]');
     await b.waitFor(`${answers} >= 1`, 60000);
     await b.waitFor(`(document.querySelector('[data-structure-id]')?.textContent ?? '').includes('4HHB')`, 30000);
     await sleep(2500);
-    // Open the inspector's Quality section: drawing it fails
+    // Open the inspector's Quality section: the report is checked before it is drawn (D8)
     await b.ev(`[...document.querySelectorAll('aside button')].find(x => x.textContent.trim().startsWith('Quality'))?.click()`);
-    const crashed = await b.waitFor(visible('[data-crash="workspace"]'), 10000);
-    check('the workspace is replaced by its note', crashed >= 0);
-    check('...the page is not blank, and the app-wide note is not needed', !(await b.ev(`!!document.querySelector('[data-crash="app"]')`)) && (await b.ev(`document.getElementById('root').innerText.length`)) > 50);
-    const said = await b.ev(`[...document.querySelectorAll('[data-message="assistant"]')].map(m => m.textContent.slice(0, 80))`);
-    check('the conversation is untouched beside it', said.length === 1 && said[0].includes('Human deoxyhemoglobin'), said);
-    check('the note says the conversation is safe and offers Try again', (await b.ev(`document.querySelector('[data-crash="workspace"]')?.textContent ?? ''`)).includes('Your conversation is safe') && (await b.ev(`!![...document.querySelectorAll('[data-crash="workspace"] button')].find(x => x.textContent === 'Try again')`)));
+    const refused = await b.waitFor(`document.querySelector('[data-quality-panel]')?.dataset.qualityStatus === 'error'`, 10000);
+    check('the broken report: the panel says it came back incomplete...', refused >= 0 && /incomplete/.test(await b.ev(`document.querySelector('[data-quality-panel]')?.textContent ?? ''`)), await b.ev(`document.querySelector('[data-quality-panel]')?.textContent ?? '(no panel)'`));
+    check('...with Try again, and nothing crashed', (await b.ev(`!![...document.querySelectorAll('[data-quality-panel] button')].find(x => /Try again/.test(x.textContent))`)) && !(await b.ev(`!!document.querySelector('[data-crash]')`)));
     await sleep(500);
-    check('the fault was reported, like any other fault in the app', reports.some(r => /metrics|map|undefined/.test(r)), reports.map(r => r.slice(0, 120)));
-    await b.ev(`[...document.querySelectorAll('[data-crash="workspace"] button')].find(x => x.textContent === 'Try again')?.click()`);
-    const back = await b.waitFor(`!document.querySelector('[data-crash="workspace"]') && ${visible('canvas:not([data-chat-column] canvas)')}`, 15000);
-    check('Try again draws the workspace again (the section starts folded, so it holds)', back >= 0);
-    check('...and the chat is still there', (await b.ev(answers)) === 1, await b.ev(answers));
+    check('...nor was anything reported as a fault in the app', !reports.some(r => /metrics|map|undefined/.test(r)), reports.map(r => r.slice(0, 120)));
+
+    // A fault while drawing the workspace, on demand (TestFault, on the dev server only)
+    if (!/127\.0\.0\.1|localhost/.test(BASE)) console.log("  (fault on demand skipped: it needs the dev server)");
+    else {
+      await b.ev(`(() => { window.__argusFault = 'workspace'; return true; })()`);
+      await b.say('show me hemoglobin again'); // Anything that redraws the app
+      const crashed = await b.waitFor(visible('[data-crash="workspace"]'), 10000);
+      check('a fault while drawing: the workspace is replaced by its note', crashed >= 0);
+      check('...the page is not blank, and the app-wide note is not needed', !(await b.ev(`!!document.querySelector('[data-crash="app"]')`)) && (await b.ev(`document.getElementById('root').innerText.length`)) > 50);
+      await b.waitFor(`${answers} >= 2`, 30000);
+      const said = await b.ev(`[...document.querySelectorAll('[data-message="assistant"]')].map(m => m.textContent.slice(0, 80))`);
+      // (The second answer about the same structure shows without its title)
+      check('the conversation carries on beside it', said.length === 2 && said.every(s => s.includes('Haemoglobin carries oxygen')), said);
+      check('the note says the conversation is safe and offers Try again', (await b.ev(`document.querySelector('[data-crash="workspace"]')?.textContent ?? ''`)).includes('Your conversation is safe') && (await b.ev(`!![...document.querySelectorAll('[data-crash="workspace"] button')].find(x => x.textContent === 'Try again')`)));
+      await sleep(500);
+      check('the fault was reported, like any other fault in the app', reports.some(r => /workspace test fault/.test(r)), reports.map(r => r.slice(0, 120)));
+      await b.ev(`(() => { delete window.__argusFault; return true; })()`);
+      await b.ev(`[...document.querySelectorAll('[data-crash="workspace"] button')].find(x => x.textContent === 'Try again')?.click()`);
+      const back = await b.waitFor(`!document.querySelector('[data-crash="workspace"]') && ${visible('canvas:not([data-chat-column] canvas)')}`, 15000);
+      check('Try again draws the workspace again', back >= 0);
+      check('...and the chat is still there', (await b.ev(answers)) === 2, await b.ev(answers));
+    }
   } finally { b.close(); }
 }
 

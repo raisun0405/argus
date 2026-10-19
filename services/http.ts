@@ -71,6 +71,44 @@ export const stoppedByFirewall = (response: Response) =>
 export const FIREWALL_MESSAGE = "The site's check for automated traffic stopped this request. Reload the page, then try again.";
 export const FIREWALL_REASON = "the site's check for automated traffic stopped the request; reload the page, then try again";
 
+/**
+ * A signal that aborts after `ms`, or as soon as the caller's own signal does (a Stop): for one request
+ * of work the caller may cancel. Browsers without AbortSignal.any get the same from a controller.
+ */
+export const timeoutSignal = (ms: number, signal?: AbortSignal): AbortSignal => {
+  const timeout = AbortSignal.timeout(ms);
+  if (!signal) return timeout;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout]);
+  const controller = new AbortController();
+  for (const source of [signal, timeout]) {
+    if (source.aborted) controller.abort(source.reason);
+    else source.addEventListener('abort', () => controller.abort(source.reason), { once: true });
+  }
+  return controller.signal;
+};
+
+/** The error a cancelled wait rejects with, as fetch does: name "AbortError". */
+export const abortError = () => new DOMException('Stopped', 'AbortError');
+
+/** Waits `ms`, or rejects with an AbortError at once when the signal aborts. */
+export const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) return reject(abortError());
+  const stop = () => { clearTimeout(timer); reject(abortError()); };
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve(); }, ms);
+  signal?.addEventListener('abort', stop, { once: true });
+});
+
+/**
+ * Shared work, waited for until the signal aborts: the caller stops waiting (AbortError), and the work
+ * itself goes on for the others who share it.
+ */
+export const untilAborted = <T,>(work: Promise<T>, signal: AbortSignal): Promise<T> => new Promise<T>((resolve, reject) => {
+  if (signal.aborted) return reject(abortError());
+  const stop = () => reject(abortError());
+  signal.addEventListener('abort', stop, { once: true });
+  work.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+});
+
 /** GET with a timeout. Returns null on 404 (resource genuinely absent). */
 export const fetchOrNull = async (url: string): Promise<Response | null> => {
   const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });

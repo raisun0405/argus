@@ -15,7 +15,7 @@ import { isTyping, matchesChord, parseResidueQuery, type Command } from './servi
 import { THEME_LIST } from './themes';
 import { useTheme } from './useTheme';
 import { PHONE_QUERY, useMediaQuery } from './useMedia';
-import ErrorBoundary, { PaneCrash } from './components/ErrorBoundary';
+import ErrorBoundary, { PaneCrash, TestFault } from './components/ErrorBoundary';
 
 // Mock data for initial state (Insulin)
 const INITIAL_DATA: ProteinAnalysis = {
@@ -338,6 +338,7 @@ const App: React.FC = () => {
         <div className={`flex-1 min-w-0 h-full relative ${workspaceHidden ? 'hidden' : ''}`}>
           {/* A fault in the 3D workspace replaces only it: the chat carries on, and opening another structure tries again */}
           <ErrorBoundary resetKey={currentAnalysis.pdbId} fallback={retry => <PaneCrash onRetry={retry} headerStart={paneSwitch} />}>
+            <TestFault name="workspace" />
             <ProteinViewer
               pdbId={currentAnalysis.pdbId}
               title={currentAnalysis.title}

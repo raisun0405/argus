@@ -1,4 +1,5 @@
 import type { SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit } from '../types';
+import { abortError, pause, timeoutSignal } from './http';
 
 // --- FOLDSEEK STRUCTURE SEARCH ---
 // Free public server (van Kempen et al., Nat Biotechnol 2024). Searches by 3D
@@ -11,8 +12,6 @@ const POLL_MS = 2000;
 const MAX_WAIT_MS = 150000;
 const SAME_PROTEIN_IDENTITY = 80; // PDB hits at/above this are the query protein or a close ortholog
 const MAX_ROWS = 20;
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- QUERY PREPARATION ---
 
@@ -283,10 +282,14 @@ export const parseResults = (results: { db: string; alignments: RawHit[] | RawHi
 
 // --- SEARCH ---
 
-/** Submit a single-chain structure, wait for the server, return grouped hits. */
+/**
+ * Submit a single-chain structure, wait for the server, return grouped hits. The signal stops it at
+ * once (no more polling, no result download), rejecting with an AbortError.
+ */
 export const searchSimilarStructures = async (
   query: SimilarSearchQuery,
-  onStatus?: (status: string) => void
+  onStatus?: (status: string) => void,
+  signal?: AbortSignal,
 ): Promise<SimilarSearchResult> => {
   const form = new FormData();
   form.append('q', new Blob([query.pdb], { type: 'text/plain' }), 'query.pdb');
@@ -296,7 +299,7 @@ export const searchSimilarStructures = async (
   const submitted = await fetch(`${FOLDSEEK_API}/ticket`, {
     method: 'POST',
     body: form,
-    signal: AbortSignal.timeout(30000),
+    signal: timeoutSignal(30000, signal),
   });
   if (!submitted.ok) throw new Error(`Foldseek rejected the search (${submitted.status})`);
   const ticket = await submitted.json();
@@ -308,18 +311,19 @@ export const searchSimilarStructures = async (
     if (status === 'ERROR') throw new Error('Foldseek could not process this structure');
     if (Date.now() - started > MAX_WAIT_MS) throw new Error('Foldseek is busy — try again in a minute');
     onStatus?.(status === 'RUNNING' ? 'Comparing shapes across PDB and AlphaFold DB…' : 'Waiting in the Foldseek queue…');
-    await sleep(POLL_MS);
+    await pause(POLL_MS, signal);
     // A failed status check (network blip, slow reply) just means "ask again"; MAX_WAIT_MS still ends the wait
     try {
-      const poll = await fetch(`${FOLDSEEK_API}/ticket/${ticket.id}`, { signal: AbortSignal.timeout(15000) });
+      const poll = await fetch(`${FOLDSEEK_API}/ticket/${ticket.id}`, { signal: timeoutSignal(15000, signal) });
       status = (poll.ok ? (await poll.json())?.status : null) ?? 'PENDING';
     } catch {
+      if (signal?.aborted) throw abortError();
       status = 'PENDING';
     }
   }
 
   onStatus?.('Grouping similar proteins…');
-  const result = await fetch(`${FOLDSEEK_API}/result/${ticket.id}/0`, { signal: AbortSignal.timeout(60000) });
+  const result = await fetch(`${FOLDSEEK_API}/result/${ticket.id}/0`, { signal: timeoutSignal(60000, signal) });
   if (!result.ok) throw new Error(`Foldseek results unavailable (${result.status})`);
   return parseResults((await result.json())?.results, query);
 };

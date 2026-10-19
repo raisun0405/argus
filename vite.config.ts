@@ -144,7 +144,7 @@ function vercelApiDev(env: Record<string, string>): Plugin {
 // Note: NEBIUS_API_KEY and NVIDIA_NIM_KEY are intentionally NOT injected into the
 // client bundle. They are read at runtime by the Vercel Edge functions in `api/`
 // (where they stay server-side and never reach the browser).
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // '' prefix loads unprefixed vars too, so the keys in .env.local are
   // available to the dev middleware above.
   const env = loadEnv(mode, process.cwd(), '');
@@ -155,9 +155,11 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
     },
     plugins: [react(), themeCss(), appPath(), preloadVisuals(), siteUrl(), vercelApiDev(env)],
-    // Which build an error report came from (services/errorReporter.ts): the deployment's commit on Vercel
+    // Which build an error report came from (services/errorReporter.ts): the deployment's commit on Vercel.
+    // And whether this is the dev server, for test-only code that builds leave out (TestFault)
     define: {
       __BUILD_ID__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || 'local'),
+      __DEV_SERVER__: JSON.stringify(command === 'serve'),
     },
     resolve: {
       alias: {

@@ -4,7 +4,7 @@ import { fetchPdbFile } from './structureFiles';
 import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { getPrediction, isEsmFoldId } from './esmfoldService';
 import { getCofold, isCofoldId } from './cofoldService';
-import { FIREWALL_MESSAGE, stoppedByFirewall } from './http';
+import { FIREWALL_MESSAGE, pause, stoppedByFirewall, timeoutSignal } from './http';
 import { loadStructureFacts } from './groundingService';
 import { fetchSiftsMapping, loadVariantLens, type SiftsAccession } from './variantService';
 import { loadPockets, pocketsSupported, shownPockets } from './pocketService';
@@ -87,7 +87,7 @@ export interface InvestigationTools {
   ligands: (pdb: string) => LigandSite[];
   proteins: (id: string) => Promise<SiftsAccession[]>;
   partners: (query: PartnerQuery) => Promise<PartnerSearchResult>;
-  similar: (query: SimilarSearchQuery) => Promise<SimilarSearchResult>;
+  similar: (query: SimilarSearchQuery, signal: AbortSignal) => Promise<SimilarSearchResult>;
   literature: (query: string) => Promise<LiteratureSource[]>;
 }
 
@@ -119,8 +119,10 @@ export const browserTools: InvestigationTools = {
   pockets: (id, pdb, signal) => loadPockets(id, pdb, signal),
   ligands: pdb => analyzeInteractions(pdb),
   proteins: fetchSiftsMapping,
+  // A partner search is shared with the workspace's Partners and kept for the chat: a stopped step stops
+  // waiting for it, and its few time-limited requests finish for whoever asks next
   partners: query => findPartners(query),
-  similar: query => searchSimilarStructures(query),
+  similar: (query, signal) => searchSimilarStructures(query, undefined, signal),
   literature: query => searchLiterature(query),
 };
 
@@ -137,14 +139,23 @@ class SkipStep extends Error {}
 
 const stopped = () => Object.assign(new Error('stopped'), { name: 'AbortError' });
 
-/** The work, unless it takes longer than `ms` or the investigation is stopped first. */
-const within = <T,>(work: Promise<T>, ms: number, signal: AbortSignal): Promise<T> =>
+/**
+ * The work, unless it takes longer than `ms` or the investigation is stopped first. The work gets its
+ * own signal, aborted in both cases, so it stops too instead of running on unseen (a pocket prediction
+ * polls for up to 10 minutes, a fold search for 2½).
+ */
+const within = <T,>(work: (signal: AbortSignal) => Promise<T>, ms: number, signal: AbortSignal): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     if (signal.aborted) return reject(stopped());
-    const timer = setTimeout(() => reject(new Error(`no answer after ${Math.round(ms / 1000)} s`)), ms);
-    const onAbort = () => reject(stopped());
+    const step = new AbortController();
+    const end = (error: Error) => {
+      step.abort();
+      reject(error);
+    };
+    const timer = setTimeout(() => end(new Error(`no answer after ${Math.round(ms / 1000)} s`)), ms);
+    const onAbort = () => end(stopped());
     signal.addEventListener('abort', onAbort, { once: true });
-    work.then(resolve, reject).finally(() => {
+    work(step.signal).then(resolve, reject).finally(() => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
     });
@@ -374,7 +385,7 @@ const runSimilar = async (ctx: StepContext): Promise<StepResult> => {
     pdb: extractChain(ctx.pdb, chain),
     excludePdbIds: predicted ? [] : [ctx.structureId.toUpperCase()],
     excludeAccessions: af ? [af] : proteins.filter(p => p.chains.includes(chain)).map(p => p.accession),
-  });
+  }, ctx.signal);
   // Other proteins first: the query's own protein in other species says little about the fold
   const others = result.proteins.filter(h => !h.sameProtein);
   const same = result.proteins.filter(h => h.sameProtein);
@@ -503,7 +514,7 @@ export const runInvestigationSteps = async (
     if (signal.aborted) return update(step, { status: 'skipped', note: 'stopped', finishedAt: Date.now() });
     update(step, { status: 'running', startedAt: Date.now() });
     try {
-      const result = await within(runTool(step.plan, ctx), STEP_TIMEOUT_MS[step.plan.tool], signal);
+      const result = await within(stepSignal => runTool(step.plan, { ...ctx, signal: stepSignal }), STEP_TIMEOUT_MS[step.plan.tool], signal);
       for (const set of result.sets) ctx.sets.set(set.name, set);
       update(step, { status: 'done', result, finishedAt: Date.now() });
     } catch (e) {
@@ -583,18 +594,15 @@ export const fallbackWriteUp = (steps: InvestigationStep[], title: string): Writ
 // --- THE TWO AI CALLS ---
 
 const MAX_RATE_LIMIT_WAIT_S = 20;
-
-/** Waits `ms`, or rejects at once when the investigation is stopped. */
-const waitUnlessStopped = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
-  const stop = () => { clearTimeout(timer); reject(new DOMException('Stopped', 'AbortError')); };
-  const timer = setTimeout(() => { signal?.removeEventListener('abort', stop); resolve(); }, ms);
-  if (signal?.aborted) return stop();
-  signal?.addEventListener('abort', stop, { once: true });
-});
+// The function answers within about 25 s (Vercel's limit for starting a reply), so a call still waiting
+// after this has lost its connection: the investigation goes on without it (fallback plan or write-up)
+const CALL_TIMEOUT_MS = 45_000;
 
 // Stop on the investigation's card aborts the call itself, and the wait before its retry
 const post = async (body: object, onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal): Promise<unknown> => {
-  const send = () => fetch('/api/investigate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
+  const send = () => fetch('/api/investigate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: timeoutSignal(CALL_TIMEOUT_MS, signal),
+  });
   let response = await send();
   // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one more try
   if (response.status === 502 || response.status === 504) response = await send();
@@ -603,7 +611,7 @@ const post = async (body: object, onRateLimitWait?: (seconds: number) => void, s
     const suggested = Number(response.headers.get('retry-after'));
     const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(suggested) && suggested > 0 ? Math.ceil(suggested) : 10);
     onRateLimitWait?.(wait);
-    await waitUnlessStopped(wait * 1000, signal);
+    await pause(wait * 1000, signal);
     response = await send();
   }
   if (stoppedByFirewall(response)) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: response.status, firewall: true });
