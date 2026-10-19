@@ -59,8 +59,17 @@ function bucket(): { client: AwsClient; base: string } | null {
   };
 }
 
-/** For a refused request: the keys' lengths as set (never their content), as R2 keys are 32 and 64 characters. */
-const keyLengths = () => `key lengths as set: ${(process.env.R2_ACCESS_KEY_ID ?? '').length}/${(process.env.R2_SECRET_ACCESS_KEY ?? '').length}`;
+/**
+ * For a refused request: which keys are set, without showing them. The key ID's first and last four
+ * characters, the first 8 hex digits of the secret's SHA-256, and both lengths as set (R2's are 32 and
+ * 64 characters): enough to tell a wrong key from a mangled one by comparing with the token's own.
+ */
+const keyFingerprint = async () => {
+  const id = setting('R2_ACCESS_KEY_ID');
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(setting('R2_SECRET_ACCESS_KEY'))));
+  const hash = [...digest.slice(0, 4)].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `key ${id.slice(0, 4)}…${id.slice(-4)}, secret sha256 ${hash}…, lengths as set ${(process.env.R2_ACCESS_KEY_ID ?? '').length}/${(process.env.R2_SECRET_ACCESS_KEY ?? '').length}`;
+};
 
 const objectKey = (id: string) => `v1/${id}.json.gz`;
 
@@ -111,7 +120,7 @@ export default async function handler(req: Request): Promise<Response> {
       const res = await store.client.fetch(`${store.base}/${objectKey(id)}`, { signal: controller.signal });
       if (res.status === 404) return json({ error: 'Nothing is saved under this link' }, 404);
       if (!res.ok || !res.body) {
-        console.error(`[saved] R2 ${res.status} reading ${id} (${keyLengths()})`);
+        console.error(`[saved] R2 ${res.status} reading ${id} (${await keyFingerprint()}): ${(await res.text().catch(() => '')).slice(0, 1500)}`);
         return json({ error: 'The saved result could not be read' }, 502);
       }
       return new Response(await gunzip(res.body), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': FOREVER } });
@@ -132,7 +141,8 @@ export default async function handler(req: Request): Promise<Response> {
       signal: controller.signal,
     });
     if (!res.ok) {
-      console.error(`[saved] R2 ${res.status} saving (${keyLengths()}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+      // R2's whole answer: for a refused signature it says what it expected to be signed
+      console.error(`[saved] R2 ${res.status} saving (${await keyFingerprint()}): ${(await res.text().catch(() => '')).slice(0, 1500)}`);
       return json({ error: 'The result could not be saved' }, 502);
     }
     return json({ id }, 201);
