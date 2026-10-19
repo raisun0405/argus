@@ -113,6 +113,44 @@ const pending = new BoundedMap<string, Promise<EsmPrediction>>(30);
 /** A prediction made earlier in this session (they live in memory only). */
 export const getPrediction = (id: string) => predictions.get(id.trim().toUpperCase());
 
+/** A prediction from its PDB text, with its confidence summary read from the file; null without residues. */
+const fromPdb = (id: string, sequence: string, name: string | undefined, pdb: string): EsmPrediction | null => {
+  const scores = pdb
+    .split('\n')
+    .filter(l => l.startsWith('ATOM') && l.slice(12, 16).trim() === 'CA')
+    .map(l => parseFloat(l.slice(60, 66)))
+    .filter(Number.isFinite);
+  // The scale is the file's, not each value's: 0-1 when every score is (plddtIsFraction)
+  const fraction = scores.length > 0 && Math.max(...scores) <= 1;
+  const plddt = scores.map(b => (fraction ? b * 100 : b));
+  if (plddt.length === 0) return null;
+  return {
+    id,
+    sequence,
+    ...(name ? { name } : {}),
+    pdb,
+    length: plddt.length,
+    meanPlddt: plddt.reduce((a, b) => a + b, 0) / plddt.length,
+    fractionVeryLow: plddt.filter(v => v < 50).length / plddt.length,
+  };
+};
+
+/**
+ * A prediction opened from a saved link, made available to the viewer as if folded here. Only its
+ * sequence, name and file are taken: the ID must be the sequence's own, and the confidence summary is
+ * read from the file again. Null when it doesn't hold up.
+ */
+export const restorePrediction = (raw: unknown): EsmPrediction | null => {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const sequence = typeof p.sequence === 'string' ? p.sequence : '';
+  if (!/^[A-Z]+$/.test(sequence) || sequence.length > ESMFOLD_MAX_LENGTH || p.id !== `ESM-${hash(sequence)}`) return null;
+  if (typeof p.pdb !== 'string' || p.pdb.length > 2_000_000) return null;
+  const name = typeof p.name === 'string' && p.name.length <= 80 ? p.name : undefined;
+  const prediction = fromPdb(p.id, sequence, name, p.pdb);
+  if (prediction) predictions.set(prediction.id, prediction);
+  return prediction;
+};
+
 /** Fold a validated sequence (<= 400 standard residues). Same sequence -> same prediction. */
 export const foldSequence = (sequence: string, name?: string): Promise<EsmPrediction> => {
   const id = `ESM-${hash(sequence)}`;
@@ -134,27 +172,8 @@ export const foldSequence = (sequence: string, name?: string): Promise<EsmPredic
       }
       if (response.status === 413) throw new Error(`ESMFold folds up to ${ESMFOLD_MAX_LENGTH} residues`);
       if (!response.ok) throw new Error(`the ESMFold server responded ${response.status}`);
-      const pdb = await response.text();
-
-      const scores = pdb
-        .split('\n')
-        .filter(l => l.startsWith('ATOM') && l.slice(12, 16).trim() === 'CA')
-        .map(l => parseFloat(l.slice(60, 66)))
-        .filter(Number.isFinite);
-      // The scale is the file's, not each value's: 0-1 when every score is (plddtIsFraction)
-      const fraction = scores.length > 0 && Math.max(...scores) <= 1;
-      const plddt = scores.map(b => (fraction ? b * 100 : b));
-      if (plddt.length === 0) throw new Error('ESMFold returned no structure');
-
-      const prediction: EsmPrediction = {
-        id,
-        sequence,
-        name,
-        pdb,
-        length: plddt.length,
-        meanPlddt: plddt.reduce((a, b) => a + b, 0) / plddt.length,
-        fractionVeryLow: plddt.filter(v => v < 50).length / plddt.length,
-      };
+      const prediction = fromPdb(id, sequence, name, await response.text());
+      if (!prediction) throw new Error('ESMFold returned no structure');
       predictions.set(id, prediction);
       return prediction;
     })();

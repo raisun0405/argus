@@ -3,8 +3,10 @@ import ReasoningEngine from './components/ReasoningEngine';
 import ProteinViewer, { type ActionRequest, type WorkspaceCommands } from './components/ProteinViewer';
 import { actionFailed, type ActionResult, type ChatAction } from './services/chatActions';
 import { ProteinAnalysis, Highlight, SimilarSearchQuery, PartnerQuery, CofoldRequest } from './types';
-import { SHARE_PREFIX, buildShareUrl, canShare, readShareHash, type SharedViewState } from './services/shareService';
+import { SHARE_PREFIX, buildShareLink, canShare, readShareHash, type SharedViewState } from './services/shareService';
+import { SAVED_PREFIX, canSave, openedSaved, saveView, type OpenedSaved } from './services/savedService';
 import { isCofoldId } from './services/cofoldService';
+import { copyLink, type ShareLink } from './components/ShareButton';
 import CommandPalette, { type PaletteResult } from './components/workspace/CommandPalette';
 import ResizeHandle, { usePaneSize } from './components/workspace/ResizeHandle';
 import ShortcutSheet from './components/workspace/ShortcutSheet';
@@ -50,16 +52,18 @@ const CHAT_MIN = 320;
 const CHAT_MAX = 720;
 
 const App: React.FC = () => {
-  // A share link (#view=...) opens its answer and view instead of the default insulin
-  const [shared] = useState(() => readShareHash(window.location.hash));
+  // A share link (#view=...) opens its answer and view instead of the default insulin; a saved
+  // result's short link (#s=...) was opened before the app started (index.tsx)
+  const [shared] = useState(() => openedSaved() ?? readShareHash(window.location.hash));
   const sharedView = shared && 'analysis' in shared ? shared : null;
   const [currentAnalysis, setCurrentAnalysis] = useState<ProteinAnalysis>(sharedView?.analysis ?? INITIAL_DATA);
   const viewStateRef = useRef<(() => SharedViewState) | null>(null); // The viewer's colouring, camera...
 
   // The link stays in the address bar while its answer is on screen (a reload keeps it), and goes
   // once the conversation moves on, so the address never claims a view that isn't showing
+  const isLinkHash = (hash: string) => hash.startsWith(SHARE_PREFIX) || hash.startsWith(SAVED_PREFIX);
   useEffect(() => {
-    if (!window.location.hash.startsWith(SHARE_PREFIX)) return;
+    if (!isLinkHash(window.location.hash)) return;
     if (sharedView && currentAnalysis === sharedView.analysis) return;
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, [currentAnalysis]);
@@ -68,16 +72,26 @@ const App: React.FC = () => {
   // start over with it, exactly as a fresh visit would
   useEffect(() => {
     const onHashChange = () => {
-      if (window.location.hash.startsWith(SHARE_PREFIX)) window.location.reload();
+      if (isLinkHash(window.location.hash)) window.location.reload();
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  const getShareLink = () =>
-    canShare(currentAnalysis)
-      ? buildShareUrl(currentAnalysis, viewStateRef.current?.() ?? {}, window.location.origin + window.location.pathname)
-      : null;
+  // A plain link when it can carry the whole view (nothing is stored); otherwise the view is saved and
+  // gets a short link: a prediction made here, or a tour or summary a plain link would cut. A save that
+  // fails still leaves the cut-down plain link where there is one.
+  const getShareLink = (): ShareLink => {
+    if (!canSave(currentAnalysis)) return null;
+    const view = viewStateRef.current?.() ?? {};
+    const base = window.location.origin + window.location.pathname;
+    if (!canShare(currentAnalysis)) return saveView(currentAnalysis, view, base);
+    const plain = buildShareLink(currentAnalysis, view, base);
+    return plain.complete ? plain.url : saveView(currentAnalysis, view, base).catch(() => plain.url);
+  };
+  const shareDisabledReason = canSave(currentAnalysis)
+    ? undefined
+    : `This ${isCofoldId(currentAnalysis.pdbId) ? 'co-folded complex' : 'folded sequence'} is no longer in memory; run it again to share it`;
   const [tourHighlights, setTourHighlights] = useState<Highlight[]>([]);
   const [subtitle, setSubtitle] = useState<string | null>(null);
   // "Find similar" in the viewer runs as a chat turn, so the results land in the conversation
@@ -174,10 +188,9 @@ const App: React.FC = () => {
       { id: 'ws-chat', title: 'Show or hide the chat', group: 'Workspace', shortcut: 'b', run: () => setChatOpen(o => !o) },
       {
         id: 'ws-share', title: 'Copy a link to this view', group: 'Workspace', keywords: 'share url',
-        disabled: !canShare(currentAnalysis),
+        disabled: Boolean(shareDisabledReason),
         run: () => {
-          const link = getShareLink();
-          if (link) navigator.clipboard?.writeText(link).catch(() => {});
+          copyLink(getShareLink()).catch(() => {});
         },
       },
       ...THEME_LIST.map(t => ({
@@ -292,11 +305,10 @@ const App: React.FC = () => {
             askRequest={askRequest}
             onBusyChange={setIsChatBusy}
             sharedAnalysis={sharedView?.analysis}
+            sharedCofold={sharedView && 'cofold' in sharedView ? (sharedView as OpenedSaved).cofold : undefined}
             sharedError={shared && 'error' in shared ? shared.error : null}
             getShareLink={getShareLink}
-            shareDisabledReason={canShare(currentAnalysis)
-              ? undefined
-              : `A ${isCofoldId(currentAnalysis.pdbId) ? 'co-folded complex' : 'folded sequence'} lives only in this browser, so it can't be shared yet`}
+            shareDisabledReason={shareDisabledReason}
             onOpenPalette={() => setPaletteOpen(true)}
             onFocusHighlights={(highlights) => {
               if (commandsRef.current?.focusHighlights(highlights) && narrow) setPhoneTab('structure');

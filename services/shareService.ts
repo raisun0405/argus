@@ -9,7 +9,9 @@ import { isCofoldId } from './cofoldService';
 // summary, highlights, measurements, tour) and how it is shown (colouring, visual mode, the
 // AlphaFold switch, an overlay, the camera). Everything travels in the URL fragment, which browsers never send
 // to a server, so no backend or storage is involved. An opened link goes through the same
-// validation as the AI's replies, and the chat labels it as shared rather than generated.
+// validation as the AI's replies, and the chat labels it as shared rather than generated. What can't
+// travel in a link (a prediction made in the browser, a tour too long for one) is saved instead and
+// opened by a short link (services/savedService.ts).
 
 export const SHARE_PREFIX = '#view=';
 const VERSION = 1;
@@ -46,7 +48,10 @@ export interface SharedView {
   view: SharedViewState;
 }
 
-/** Folded sequences and co-folded complexes live only in the browser that made them, so they can't be shared (yet). */
+/**
+ * Whether a link can carry this answer by itself. Folded sequences and co-folded complexes live only in
+ * the browser that made them, so they are saved instead (services/savedService.ts).
+ */
 export const canShare = (analysis?: ProteinAnalysis | null) => Boolean(analysis && !isEsmFoldId(analysis.pdbId) && !isCofoldId(analysis.pdbId));
 
 const toBase64Url = (text: string) => {
@@ -62,7 +67,7 @@ const fromBase64Url = (data: string) => {
 };
 
 /** Only the settings that make sense for this answer, in the expected shape. */
-const cleanView = (raw: unknown, analysis: ProteinAnalysis): SharedViewState => {
+export const cleanView =(raw: unknown, analysis: ProteinAnalysis): SharedViewState => {
   const view = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const fromExperimental = !parseAlphaFoldId(analysis.pdbId);
   const alphaFold = fromExperimental && typeof view.alphaFold === 'string' && ACCESSION.test(view.alphaFold) ? view.alphaFold : undefined;
@@ -97,28 +102,39 @@ const cleanView = (raw: unknown, analysis: ProteinAnalysis): SharedViewState => 
   };
 };
 
-/** A link reopening this answer and view (base: the page address without fragment). */
-export const buildShareUrl = (analysis: ProteinAnalysis, view: SharedViewState, base: string): string => {
-  const answer: ProteinAnalysis = {
-    pdbId: analysis.pdbId,
-    title: analysis.title,
-    summary: analysis.summary,
-    highlights: analysis.highlights,
-    ...(analysis.measurements?.length ? { measurements: analysis.measurements } : {}),
-    ...(analysis.tour?.length ? { tour: analysis.tour } : {}),
-  };
+/** What a link (or a saved result) carries of an answer: no quiz, no actions. */
+export const sharedAnswer = (analysis: ProteinAnalysis): ProteinAnalysis => ({
+  pdbId: analysis.pdbId,
+  title: analysis.title,
+  summary: analysis.summary,
+  highlights: analysis.highlights,
+  ...(analysis.measurements?.length ? { measurements: analysis.measurements } : {}),
+  ...(analysis.tour?.length ? { tour: analysis.tour } : {}),
+});
+
+/**
+ * A link reopening this answer and view (base: the page address without fragment), and whether it
+ * holds all of it: a long tour or summary is left out or shortened to keep the link inside URL limits.
+ */
+export const buildShareLink = (analysis: ProteinAnalysis, view: SharedViewState, base: string): { url: string; complete: boolean } => {
+  const answer = sharedAnswer(analysis);
   const encode = () => toBase64Url(JSON.stringify({ v: VERSION, a: answer, s: cleanView(view, answer) }));
   let encoded = encode();
+  let complete = true;
   if (encoded.length > MAX_LINK_CHARS && answer.tour) {
     delete answer.tour;
     encoded = encode();
+    complete = false;
   }
   if (encoded.length > MAX_LINK_CHARS && answer.summary.length > MAX_SHARED_SUMMARY) {
     answer.summary = `${answer.summary.slice(0, MAX_SHARED_SUMMARY - 1)}…`;
     encoded = encode();
+    complete = false;
   }
-  return `${base}${SHARE_PREFIX}${encoded}`;
+  return { url: `${base}${SHARE_PREFIX}${encoded}`, complete };
 };
+
+export const buildShareUrl = (analysis: ProteinAnalysis, view: SharedViewState, base: string): string => buildShareLink(analysis, view, base).url;
 
 /** The view in a page fragment: null when there is none, { error } when it can't be opened. */
 export const readShareHash = (hash: string): SharedView | { error: string } | null => {

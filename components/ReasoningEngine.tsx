@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, TourStep, Quiz } from '../types';
+import { Message, ProteinAnalysis, Highlight, SimilarSearchQuery, SimilarSearchResult, SimilarStructureHit, InteractionPartner, PartnerQuery, PartnerSearchResult, CofoldRequest, CofoldResult, TourStep, Quiz } from '../types';
 import { SPEECH_ENABLED, analyzeProteinQuery, generateSpeech, rememberAnalysis } from '../services/analysisService';
 import { FIREWALL_MESSAGE } from '../services/http';
 import QuizCard from './QuizCard';
@@ -10,7 +10,7 @@ import SimilarStructuresCard from './SimilarStructuresCard';
 import PartnersCard from './PartnersCard';
 import CofoldCard from './CofoldCard';
 import CompareCard from './CompareCard';
-import ShareButton from './ShareButton';
+import ShareButton, { copyLink, type ShareLink } from './ShareButton';
 import { shortcutLabel } from '../services/commands';
 import { tweaksEnabled, useChatDemo, useChatLook } from './chat/chatLook';
 import ChatBackground from './chat/ChatBackground';
@@ -51,8 +51,9 @@ interface ReasoningEngineProps {
   onOpenPalette?: () => void; // The header's search button
   onBusyChange?: (busy: boolean) => void; // Lets the viewer disable its chat tools while the chat is busy
   sharedAnalysis?: ProteinAnalysis; // Opened from a share link
+  sharedCofold?: { result: CofoldResult; origin: ProteinAnalysis }; // A saved co-fold (or comparison) opened from a short link: its card
   sharedError?: string | null; // A share link that couldn't be opened, and why
-  getShareLink?: () => string | null;
+  getShareLink?: () => ShareLink;
   shareDisabledReason?: string;
   onFocusHighlights?: (highlights: Highlight[]) => void; // A "Marked in 3D" row was clicked: bring that part into view
   onRunActions?: (actions: ChatAction[], target?: string) => Promise<ActionResult[]>; // The viewer runs what the chat asks for, and says what it did
@@ -88,7 +89,7 @@ const WELCOME: Message = {
   content: "I'm Argus — your AI co-scientist for protein analysis. Ask me to visualize a structure, explain a mechanism, or walk you through a binding site. Try: 'Show me HIV protease' or 'Explain hemoglobin oxygen transport'.",
 };
 
-const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, onTourStep, onSubtitleChange, currentAnalysis, isInitialLoad, similarityRequest, partnersRequest, cofoldRequest, askRequest, onOpenPalette, onBusyChange, sharedAnalysis, sharedError, getShareLink, shareDisabledReason, onFocusHighlights, onRunActions, headerStart, onTourState, tourControlsRef, getSelection }) => {
+const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, onTourStep, onSubtitleChange, currentAnalysis, isInitialLoad, similarityRequest, partnersRequest, cofoldRequest, askRequest, onOpenPalette, onBusyChange, sharedAnalysis, sharedCofold, sharedError, getShareLink, shareDisabledReason, onFocusHighlights, onRunActions, headerStart, onTourState, tourControlsRef, getSelection }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   // The same, read by work already under way: a function holding an older render's isLoading would
@@ -174,7 +175,11 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         WELCOME,
         // A share link: its answer (labelled as shared), or why it couldn't be opened
         ...(sharedAnalysis
-          ? [{ role: 'assistant' as const, content: sharedAnalysis.summary || sharedAnalysis.title, data: sharedAnalysis, shared: true }]
+          ? [{
+              role: 'assistant' as const, content: sharedAnalysis.summary || sharedAnalysis.title, data: sharedAnalysis, shared: true,
+              // A saved co-fold comes with its card, as when it was run
+              ...(sharedCofold ? (sharedCofold.result.compare ? { compare: sharedCofold } : { cofold: sharedCofold }) : {}),
+            }]
           : sharedError
             ? [{ role: 'assistant' as const, notice: 'error' as const, content: `This share link couldn't be opened: ${sharedError}. Here's the default view instead.` }]
             : []),
@@ -522,11 +527,15 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
   // "share this": the header's Share link, on the clipboard
   const copyShareLink = async (action: ChatAction): Promise<ActionResult> => {
     if (shareDisabledReason) return actionFailed(action, shareDisabledReason.charAt(0).toLowerCase() + shareDisabledReason.slice(1));
-    const link = getShareLink?.();
+    const link = getShareLink?.() ?? null;
     if (!link) return actionFailed(action, 'there is nothing to share yet');
     try {
-      await navigator.clipboard.writeText(link);
-      return actionDone(action);
+      await Promise.resolve(link); // A view being saved: its failure is reported as such
+    } catch (e: any) {
+      return actionFailed(action, `the view couldn't be saved: ${e?.message ?? 'unknown error'}`);
+    }
+    try {
+      return (await copyLink(link)) ? actionDone(action) : actionFailed(action, 'there is nothing to share yet');
     } catch (e) {
       return actionFailed(action, "the browser didn't allow copying; use the Share button at the top");
     }

@@ -86,7 +86,7 @@ structure become two tabs that keep their state as you switch.
 - **Keyboard shortcuts** for the things you do constantly: <kbd>1</kbd>–<kbd>4</kbd> for the visual modes, <kbd>I</kbd> for the inspector, <kbd>B</kbd> for the chat, <kbd>R</kbd> to reset the view, <kbd>Esc</kbd> to clear a selection, <kbd>?</kbd> for the full list.
 
 ### Share
-- **Share links** reopen the exact view on any device: the answer, colouring, visual mode, opacity, camera angle, and a structure laid over it (which one, on which chains, how it is drawn). Everything travels in the link's `#fragment`, which never reaches a server.
+- **Share links** reopen the exact view on any device: the answer, colouring, visual mode, opacity, camera angle, and a structure laid over it (which one, on which chains, how it is drawn). Everything travels in the link's `#fragment`, which never reaches a server. A co-folded complex, a folded sequence or an answer too long for a link is saved instead and gets a short link that reopens it whole, card and all.
 - **Pictures**: the camera under the 3D view (or P, or "save a picture" in the chat) saves the view as a PNG at full resolution.
 - **Six colour themes**, monochrome dark by default.
 
@@ -134,7 +134,8 @@ results or clinical advice. Predicted affinities in particular are for comparing
 - **3Dmol.js** for the 3D viewer
 - **three.js** for the landing page's 3D stage
 - **thinking-orbs**, **border-beam** and **metal-fx** (MIT) for the chat's loaders, composer beam and liquid-metal finish
-- **Vercel** hosting, five Edge Functions and Web Analytics
+- **Vercel** hosting, six Edge Functions and Web Analytics
+- **Cloudflare R2** for saved results behind short links
 
 ## Run locally
 
@@ -168,6 +169,8 @@ Tests: `npm test` runs the logic offline in seconds; `npm run test:data` checks 
 | `COFOLD_DAILY_LIMIT` | No | Predictions per day per server instance (default 300). |
 | `RESEND_API_KEY` | No | Error alerts by email: a [Resend](https://resend.com) API key with "Sending access", read only by `api/report.ts`. With `REPORTS_EMAIL`, a new kind of error on the live site is emailed to you. Without them, errors are only written to the server log. |
 | `REPORTS_EMAIL` | No | Where the alerts go. Without a domain of your own on Resend, this must be the address you signed up with. |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | For saved links | A Cloudflare R2 bucket for saved results, read only by `api/saved.ts`: the account ID, and an R2 API token with Object Read & Write on that bucket alone. Without them, co-folds and folded sequences can't be shared, and other views keep their plain links. |
+| `R2_BUCKET` | No | The bucket's name (default `argus-saved`). |
 
 The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed variables to client code.
 
@@ -268,11 +271,15 @@ The Edge Functions are the only places the keys live. They enforce:
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.
 - **Error reports:** when the app's own code fails in a browser, a short report goes to `api/report.ts`: the error's message, where in the code, the page's path (not a share link's content) and the build, and nothing else from the page. It is logged and, when set up, emailed to you: each kind of error once, then at most every 6 hours. Ten reports a minute per visitor, and at most 2 alert emails an hour for the whole site, however many server instances share the work: Resend keeps that count, since each email goes out under an idempotency key for its hour and slot. Addresses of other sites in a report are removed from the email.
 - **Quality:** `api/quality.ts` reads only the start of an entry's official validation report on files.wwpdb.org (browsers can't fetch it there) and returns its summary: PDB IDs only, the same origin check, 30 requests a minute per visitor. The app asks by GET (`/api/quality?id=4hhb`), so Vercel's CDN keeps each answer for a day and the browser for an hour (for an entry with no report yet, an hour and 10 minutes); refusals and failures are never cached.
+- **Saved links:** `api/saved.ts` stores a shared co-fold, folded sequence or over-long answer in a private Cloudflare R2 bucket (S3 API, signed with the R2 token) and returns a random 22-character ID; `GET ?id=` returns it, cached for good since it never changes. A save must come from the site itself, holds at most 4 MB and four predicted structures in the expected shape, and is limited to 12 per visitor per 10 minutes; nothing can be listed. The page checks everything in an opened result again, field by field, before the viewer or the chat sees it.
 
-Argus has no accounts and stores nothing on a server. Answers are cached in your browser's
-`localStorage` to save repeat calls, and share links keep their content in the URL fragment.
-Co-fold sends the protein's sequence and the molecule to NVIDIA's API; its predictions stay in
-the browser tab that made them. Never commit `.env.local`; it is git-ignored.
+Argus has no accounts. Answers are cached in your browser's `localStorage` to save repeat calls,
+and share links keep their content in the URL fragment. The one thing stored on a server is what you
+choose to share that a link can't carry: a co-fold, a folded sequence, or an answer too long for a
+link. Share saves it to a private R2 bucket under a random 128-bit ID: the answer, the view and the
+predicted structure, nothing else. It is kept for good and opened only by someone holding the link.
+Co-fold sends the protein's sequence and the molecule to NVIDIA's API. Never commit `.env.local`;
+it is git-ignored.
 
 ## Roadmap
 

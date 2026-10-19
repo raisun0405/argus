@@ -172,8 +172,9 @@ try {
       `${await ev(viewerAtoms(`{ chain: 'L' }`))}/${await ev(viewerAtoms(`{ chain: 'R' }`))}/${await ev(viewerAtoms(`{ chain: 'X' }`))}`);
     check('protein numbered like 3PTB (184A present)', await ev(`(() => { const v = ${VIEWER}; return Boolean(v?.selectedAtoms({ chain: 'A', resi: 184 }).some(a => (a.icode ?? '').trim() === 'A')); })()`));
     check('Co-fold tool hidden on the co-folded complex', await ev(`!${toolButton}`));
-    const share = await ev(`(() => { const b = document.querySelector('button[aria-label="Share this view"]'); return b ? (b.title || b.getAttribute('aria-description') || '') + '|' + b.disabled + '|' + b.getAttribute('aria-disabled') : 'none'; })()`);
-    check('share explains a co-folded complex stays in this browser', /co-folded complex lives only in this browser/.test(share) || /co-folded complex/.test(await ev(`document.body.innerHTML`)), share);
+    // A complex is shared by saving it (tests/browser/saved.mjs follows that through)
+    const share = await ev(`(() => { const b = document.querySelector('button[aria-label="Share this view"]'); return b ? (b.title || '') + '|' + b.disabled : 'none'; })()`);
+    check('share is on for the co-folded complex', share.endsWith('|false'), share);
     await shot('cofold-result');
 
     // Back and forth

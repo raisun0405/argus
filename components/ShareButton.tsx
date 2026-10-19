@@ -1,23 +1,47 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+export type ShareLink = string | null | Promise<string | null>;
+
 interface ShareButtonProps {
-  getLink: () => string | null; // The link for the view on screen; null when it can't be shared
+  getLink: () => ShareLink; // The link for the view on screen (a promise while it is being saved); null when it can't be shared
   disabledReason?: string; // Set when sharing isn't possible for what's on screen
 }
 
 /**
+ * Puts a link on the clipboard. A link still being saved goes to the clipboard as a promise, inside the
+ * click that asked for it: Safari and Firefox allow copying only there, not after the save comes back.
+ */
+export const copyLink = async (link: ShareLink): Promise<boolean> => {
+  if (link === null) return false;
+  if (typeof link !== 'string' && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+    const blob = link.then(text => {
+      if (!text) throw new Error('nothing to share');
+      return new Blob([text], { type: 'text/plain' });
+    });
+    await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+    return true;
+  }
+  const text = await link;
+  if (!text) return false;
+  await navigator.clipboard.writeText(text);
+  return true;
+};
+
+/**
  * Header button that copies a link reopening the current view. Touch devices get the system share
- * sheet; when the clipboard is blocked, the link is shown to copy by hand.
+ * sheet; when the clipboard is blocked, the link is shown to copy by hand. A view that has to be saved
+ * first shows "Saving…" until its short link is ready.
  */
 const ShareButton: React.FC<ShareButtonProps> = ({ getLink, disabledReason }) => {
-  const [status, setStatus] = useState<'idle' | 'copied' | 'manual'>('idle');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'copied' | 'manual' | 'failed'>('idle');
   const [manualLink, setManualLink] = useState('');
+  const [failure, setFailure] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (status !== 'copied') return;
-    const timer = setTimeout(() => setStatus('idle'), 2500);
+    if (status !== 'copied' && status !== 'failed') return;
+    const timer = setTimeout(() => setStatus('idle'), status === 'failed' ? 6000 : 2500);
     return () => clearTimeout(timer);
   }, [status]);
 
@@ -38,27 +62,46 @@ const ShareButton: React.FC<ShareButtonProps> = ({ getLink, disabledReason }) =>
   }, [status]);
 
   const share = async () => {
+    if (status === 'saving') return;
     const link = getLink();
     if (!link) return;
+    const pending = Promise.resolve(link);
+    pending.catch(() => {}); // Read below; a failed save is reported, not thrown
+    if (typeof link !== 'string') setStatus('saving');
     const touch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
-    if (touch && typeof navigator.share === 'function') {
+    let url: string | null;
+    try {
+      // The share sheet needs the finished link, so a saved one waits for it
+      if (touch && typeof navigator.share === 'function') {
+        url = await pending;
+        if (!url) return setStatus('idle');
+        try {
+          await navigator.share({ title: 'Argus view', url });
+          return setStatus('idle');
+        } catch (e: any) {
+          if (e?.name === 'AbortError') return setStatus('idle'); // The user closed the share sheet
+        }
+      }
+      if (await copyLink(link)) return setStatus('copied');
+      url = await pending;
+    } catch {
       try {
-        await navigator.share({ title: 'Argus view', url: link });
-        return;
+        url = await pending; // Copying was refused: the link is shown to copy by hand
       } catch (e: any) {
-        if (e?.name === 'AbortError') return; // The user closed the share sheet
+        setFailure(e?.message ?? 'the view could not be saved');
+        return setStatus('failed');
       }
     }
-    try {
-      await navigator.clipboard.writeText(link);
-      setStatus('copied');
-    } catch {
-      setManualLink(link);
-      setStatus('manual');
-    }
+    if (!url) return setStatus('idle');
+    setManualLink(url);
+    setStatus('manual');
   };
 
   const copied = status === 'copied';
+  const bubble = copied ? 'Link copied — it opens this exact view'
+    : status === 'saving' ? 'Saving this view…'
+    : status === 'failed' ? `Couldn't make a link: ${failure}`
+    : '';
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -79,8 +122,8 @@ const ShareButton: React.FC<ShareButtonProps> = ({ getLink, disabledReason }) =>
       </button>
 
       {/* Announced to screen readers; shown as a small bubble under the button */}
-      <span role="status" aria-live="polite" className={copied ? 'absolute right-0 top-full mt-2 whitespace-nowrap bg-surface border border-line rounded-lg shadow-menu px-2.5 py-1.5 text-[11px] font-medium text-ink animate-argus-fade-in' : 'sr-only'}>
-        {copied ? 'Link copied — it opens this exact view' : ''}
+      <span role="status" aria-live="polite" data-share-status={status} className={bubble ? `absolute right-0 top-full mt-2 ${status === 'failed' ? 'w-64' : 'whitespace-nowrap'} bg-surface border border-line rounded-lg shadow-menu px-2.5 py-1.5 text-[11px] font-medium text-ink z-50 animate-argus-fade-in` : 'sr-only'}>
+        {bubble}
       </span>
 
       {status === 'manual' && (

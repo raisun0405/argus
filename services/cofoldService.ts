@@ -1,5 +1,6 @@
-import type { CofoldComparison, CofoldContact, CofoldPocket, CofoldRequest, CofoldResult, CofoldScores, Highlight, ProteinAnalysis, ResolvedLigand } from '../types';
+import type { CofoldComparison, CofoldContact, CofoldPocket, CofoldRequest, CofoldResult, CofoldScores, CofoldSource, Highlight, ProteinAnalysis, ResolvedLigand } from '../types';
 import { BoundedMap, FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
+import { FAIL, arr, bool, either, int, lazy, nullable, num, obj, oneOf, str, type Check } from './shape';
 import { fetchPdbFile } from './structureFiles';
 import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { getPrediction } from './esmfoldService';
@@ -533,6 +534,73 @@ const runs = new BoundedMap<string, Promise<CofoldResult>>(30);
 
 /** A prediction made earlier in this session (they live in memory only). */
 export const getCofold = (id: string) => predictions.get(id.trim().toUpperCase());
+
+// What a saved prediction must look like (services/savedService.ts): every field the cards, the viewer
+// and the chat facts read, with its type and a size limit
+const CHAIN = str(4, /^[A-Za-z0-9]{1,4}$/);
+const RESN = str(5, /^[A-Za-z0-9]{1,5}$/);
+const ICODE = str(1, /^[A-Za-z]?$/);
+const LABEL = str(300);
+const CONTACT = obj<CofoldContact>({ chain: CHAIN, resi: int(-9999, 99999), icode: ICODE, resn: RESN, distance: num(0, 100) });
+const CONTACTS = arr(CONTACT, 500);
+const SCORE = nullable(num(-1e4, 1e4));
+const RESULT: Check<CofoldResult> = lazy(() => obj<CofoldResult>({
+  id: str(20, COFOLD_ID),
+  request: obj({
+    source: either<CofoldSource>(
+      obj({ kind: oneOf('pdb'), pdbId: str(4, /^[1-9][A-Za-z0-9]{3}$/), chains: arr(CHAIN, 26) }),
+      obj({ kind: oneOf('alphafold'), accession: str(10, /^[A-Z0-9]{6,10}$/) }),
+      obj({ kind: oneOf('sequence'), sequence: str(COFOLD_MAX_RESIDUES * 2, /^[A-Z]+$/) }),
+    ),
+    structureId: str(40, /^[A-Za-z0-9-]+$/),
+    proteinName: LABEL,
+    ligandText: str(2000),
+    entryLigands: arr(RESN, 100),
+    cofactors: arr(RESN, 50),
+    'pocket?': obj({ label: LABEL, residues: arr(obj({ chain: CHAIN, resi: int(-9999, 99999), icode: ICODE }), 300) }),
+  }),
+  ligand: obj({ name: LABEL, 'code?': RESN, 'smiles?': str(2000), 'heavyAtoms?': int(0, 10000), source: oneOf('pdb', 'pubchem', 'smiles') }),
+  pdb: str(3_000_000),
+  ligandChain: CHAIN,
+  ligandResn: RESN,
+  cofactors: arr(obj({ chain: CHAIN, resn: RESN }), 50),
+  'reference?': obj({
+    chain: CHAIN, resn: RESN, from: str(40), centroidDistance: num(0, 1000), sharedContacts: int(0, 1000), crystalContacts: int(0, 1000),
+    'interactionsShared?': int(0, 1000), 'interactionsTotal?': int(0, 1000),
+  }),
+  'interactions?': arr(obj({ type: str(30), partners: arr(str(40), 100) }), 20),
+  scores: obj({ confidence: SCORE, ptm: SCORE, iptm: SCORE, ligandIptm: SCORE, proteinIptm: SCORE, plddt: SCORE, iplddt: SCORE, pde: SCORE, ipde: SCORE }),
+  affinity: nullable(obj({ log10Ic50: num(-20, 20), binderProbability: num(0, 1) })),
+  contacts: CONTACTS,
+  proteinRmsd: nullable(num(0, 1000)),
+  meanPlddt: num(0, 100),
+  template: nullable(str(40)),
+  'compare?': obj({
+    other: RESULT,
+    chain: CHAIN,
+    reference: nullable(oneOf('a', 'b')),
+    centroidDistance: num(0, 1000),
+    shared: CONTACTS,
+    onlyA: CONTACTS,
+    onlyB: CONTACTS,
+    overlap: num(0, 1),
+    fingerprint: arr(obj({ chain: CHAIN, resi: int(-9999, 99999), icode: ICODE, resn: RESN, a: arr(str(30), 20), b: arr(str(30), 20) }), 500),
+  }),
+  'pocket?': obj({ label: LABEL, residues: int(0, 1000), touched: int(0, 1000), applied: bool }),
+  seconds: num(0, 1e6),
+}));
+
+/**
+ * A prediction opened from a saved link, made available to the viewer and the chat as if run here.
+ * Null when it doesn't have the shape of one, or its file holds no atoms.
+ */
+export const restoreCofold = (raw: unknown): CofoldResult | null => {
+  const result = RESULT(raw);
+  if (result === FAIL || pdbAtoms(result.pdb).length === 0) return null;
+  const id = result.id.toUpperCase();
+  predictions.set(id, { ...result, id });
+  return predictions.get(id)!;
+};
 
 /** The structure on screen the request was made from, as PDB text. */
 const sourceStructure = async (request: CofoldRequest): Promise<string | null> => {
