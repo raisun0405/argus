@@ -1,4 +1,4 @@
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 import type { AlphaFoldModel } from './alphafoldService';
 
 // --- CONFIDENCE MAP (AlphaFold's predicted aligned error) ---
@@ -81,7 +81,7 @@ export function parsePae(text: string, entryId: string): PaeData {
 export const paeUrlFor = (model: AlphaFoldModel) =>
   model.paeUrl ?? model.pdbUrl.replace(/-model_(v\d+)\.pdb$/, '-predicted_aligned_error_$1.json');
 
-const paeCache = new Map<string, Promise<PaeData | null>>();
+const paeCache = new BoundedMap<string, Promise<PaeData | null>>(3); // A map is ~7 MB for a large model: the last few
 
 /** A model's confidence map; null when AlphaFold DB has none for it. */
 export const fetchPae = (model: AlphaFoldModel): Promise<PaeData | null> =>
@@ -201,7 +201,7 @@ export const arrangementWord = (error: number) =>
 
 // --- For the chat ---
 
-const onScreen = new Map<string, { data: PaeData; first: number }>(); // Structure ID -> its map, and its first residue number
+const onScreen = new BoundedMap<string, { data: PaeData; first: number }>(3); // Structure ID -> its map, and its first residue number
 
 /** The confidence map of an AlphaFold model on screen, for the facts sent with a question about it. */
 export const rememberPae = (structureId: string, data: PaeData | null, firstResidue = 1) => {

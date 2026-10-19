@@ -5,7 +5,7 @@ import type {
   VariantLensData,
   VariantProtein,
 } from '../types';
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 import { alphaFoldId, parseAlphaFoldId } from './alphafoldService';
 
 // --- VARIANT LENS DATA LAYER ---
@@ -108,7 +108,7 @@ export interface SiftsAccession {
   segments: SiftsSegment[];
 }
 
-const siftsCache = new Map<string, Promise<SiftsAccession[]>>();
+const siftsCache = new BoundedMap<string, Promise<SiftsAccession[]>>(50);
 
 export const fetchSiftsMapping = (pdbId: string): Promise<SiftsAccession[]> => {
   const id = pdbId.toLowerCase();
@@ -146,7 +146,7 @@ interface ListedResidue {
   observed: boolean;
 }
 
-const listingCache = new Map<string, Promise<Map<string, ListedResidue[]>>>();
+const listingCache = new BoundedMap<string, Promise<Map<string, ListedResidue[]>>>(12);
 
 /** Residues of every polymer chain, keyed by label chain ID (struct_asym_id). */
 export const fetchResidueListing = (id: string) =>
@@ -174,7 +174,7 @@ export const fetchResidueListing = (id: string) =>
 
 // --- Residue -> UniProt position ---
 
-const sequenceCache = new Map<string, Promise<string>>();
+const sequenceCache = new BoundedMap<string, Promise<string>>(50);
 
 /** A protein's UniProt sequence ('' when UniProt has none); also gives its full length (services/coverageService.ts). */
 export const fetchUniProtSequence = (accession: string) =>
@@ -255,7 +255,7 @@ interface AmPosition {
   worstScore: number;
 }
 
-const amCache = new Map<string, Promise<Map<number, AmPosition> | null>>();
+const amCache = new BoundedMap<string, Promise<Map<number, AmPosition> | null>>(6); // Every substitution of a whole protein
 
 const fetchAlphaMissense = (accession: string) =>
   memoize(amCache, accession, async () => {
@@ -303,7 +303,7 @@ interface UniProtVariants {
   variants: Map<number, KnownVariant[]>;
 }
 
-const uniprotCache = new Map<string, Promise<UniProtVariants | null>>();
+const uniprotCache = new BoundedMap<string, Promise<UniProtVariants | null>>(10);
 
 /** "in LFS; germline mutation..." -> ["LFS"]; "in Hb C; ..." -> ["Hb C"] */
 const firstClauseTags = (description: string): string[] => {
@@ -542,7 +542,7 @@ const buildPdbVariantLens = async (id: string): Promise<VariantLensData> => {
   return data;
 };
 
-const lensCache = new Map<string, Promise<VariantLensData>>();
+const lensCache = new BoundedMap<string, Promise<VariantLensData>>(6);
 
 /** Build (or reuse) the Variant Lens data for a PDB entry or an AlphaFold model ("AF-P04637-F1"). */
 export const loadVariantLens = (structureId: string): Promise<VariantLensData> => {
@@ -556,7 +556,7 @@ export const loadVariantLens = (structureId: string): Promise<VariantLensData> =
   return pending;
 };
 
-const residueMapCache = new Map<string, Promise<Record<string, number>>>();
+const residueMapCache = new BoundedMap<string, Promise<Record<string, number>>>(20);
 
 /**
  * PDB residue (variantKey: chain + author number + insertion code) -> UniProt

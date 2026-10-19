@@ -1,5 +1,5 @@
 import type { Highlight, ProteinAnalysis } from '../types';
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 import { fetchResidueListing, fetchSiftsMapping, loadSegmentPositions } from './variantService';
 import { parseAlphaFoldId } from './alphafoldService';
 import { isEsmFoldId } from './esmfoldService';
@@ -92,7 +92,7 @@ const uniprotNames = (json: any): string[] => {
   return names;
 };
 
-const uniprotCache = new Map<string, Promise<UniProtEntry | null>>();
+const uniprotCache = new BoundedMap<string, Promise<UniProtEntry | null>>(60);
 
 const fetchUniProtEntry = (accession: string): Promise<UniProtEntry | null> =>
   memoize(uniprotCache, accession, async () => {
@@ -125,7 +125,7 @@ interface Ligand {
   resi: number;
 }
 
-const ligandCache = new Map<string, Promise<Ligand[]>>();
+const ligandCache = new BoundedMap<string, Promise<Ligand[]>>(30);
 
 const fetchLigands = (id: string): Promise<Ligand[]> =>
   memoize(ligandCache, id, async () => {
@@ -149,7 +149,7 @@ interface Molecule {
   asyms: string[];
 }
 
-const moleculeCache = new Map<string, Promise<Molecule[]>>();
+const moleculeCache = new BoundedMap<string, Promise<Molecule[]>>(30);
 
 const fetchMolecules = (id: string): Promise<Molecule[]> =>
   memoize(moleculeCache, id, async () => {
@@ -652,10 +652,16 @@ const questionHintLine = (proteins: HintProtein[], query: string): string | null
   return notes.length ? `Residues named in the question (checked against UniProt): ${notes.join('; ')}` : null;
 };
 
-const factsCache = new Map<string, Promise<string | null>>();
 const hintCache = new Map<string, HintProtein[]>(); // Filled alongside factsCache
 const indexCache = new Map<string, StructureIndex | 'unknown'>(); // Likewise
 const degraded = new Set<string>(); // Keys whose last build had a source failing
+// The last few dozen structures; one dropped takes its hints and residue index with it (kept apart, they
+// would leave an answer about it unchecked: facts cached, no index to check by)
+const factsCache = new BoundedMap<string, Promise<string | null>>(30, key => {
+  hintCache.delete(key);
+  indexCache.delete(key);
+  degraded.delete(key);
+});
 
 /** Cache key for a structure with facts: "AF-P04637" or a lower-case PDB ID; null for anything else (e.g. ESMFold). */
 const factsKey = (structureId: string) => {
@@ -777,7 +783,8 @@ const labelledTypes = (label: string) => {
 
 /** An answer judged against the structure it names: what doesn't fit, and how many places it marks. */
 export interface AnswerInspection {
-  problems: string[]; // Worded for the model's retry; [] when everything fits
+  problems: string[]; // Worded for the model's retry (the first few); [] when everything fits
+  faults: number; // Every problem found, however many: what answers are compared by
   exists: boolean; // false: the ID isn't a valid or existing PDB entry
   residues: number; // Residues it marks that the file has (of the type its label names, when it names one)
   ligands: number; // Ligands, metals... it marks that the file has
@@ -801,13 +808,13 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   const id = analysis.pdbId;
   if (isEsmFoldId(id) || isCofoldId(id)) return null;
   const key = factsKey(id);
-  if (!key) return { problems: [`"${id}" is not a valid PDB ID (PDB IDs are 4 characters, e.g. a digit and three letters or digits)`], exists: false, ...NO_MARKS };
+  if (!key) return { problems: [`"${id}" is not a valid PDB ID (PDB IDs are 4 characters, e.g. a digit and three letters or digits)`], faults: 1, exists: false, ...NO_MARKS };
 
   const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), maxWaitMs));
   await Promise.race([loadStructureFacts(id).catch(() => null), timeout]);
   const index = indexCache.get(key);
   if (!index) return null;
-  if (index === 'unknown') return { problems: [`${id} is not an existing PDB entry`], exists: false, ...NO_MARKS };
+  if (index === 'unknown') return { problems: [`${id} is not an existing PDB entry`], faults: 1, exists: false, ...NO_MARKS };
 
   const problems = new Set<string>();
   const places = new Map<string, Outcome>();
@@ -956,7 +963,9 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
 
   const counts = { ...NO_MARKS, named, misnamed };
   for (const outcome of places.values()) counts[outcome === 'residue' ? 'residues' : outcome === 'ligand' ? 'ligands' : outcome]++;
-  return { problems: [...problems].slice(0, MAX_PROBLEMS), exists: true, ...counts };
+  // The model is shown the first few; answers are compared by all of them (two answers with 20 and 10
+  // faults both list 8)
+  return { problems: [...problems].slice(0, MAX_PROBLEMS), faults: problems.size, exists: true, ...counts };
 };
 
 /**
@@ -979,7 +988,7 @@ export interface EntryIdentity {
 }
 
 const RCSB_ENTRY = 'https://data.rcsb.org/rest/v1/core/entry';
-const titleCache = new Map<string, Promise<string>>();
+const titleCache = new BoundedMap<string, Promise<string>>(100);
 const fetchEntryTitle = (id: string): Promise<string> =>
   memoize(titleCache, id, async () => {
     const response = await fetchOrNull(`${RCSB_ENTRY}/${id}`);
@@ -994,7 +1003,7 @@ export const entryTitleToOpen = async (id: string): Promise<string | null> => {
   return fetchEntryTitle(id).catch(() => '');
 };
 
-const identityCache = new Map<string, Promise<EntryIdentity | null>>();
+const identityCache = new BoundedMap<string, Promise<EntryIdentity | null>>(50);
 
 /** A PDB entry's or AlphaFold model's identity records; null when there is no such structure. */
 export const loadIdentity = (structureId: string): Promise<EntryIdentity | null> => {
@@ -1004,8 +1013,11 @@ export const loadIdentity = (structureId: string): Promise<EntryIdentity | null>
   const pending = memoize(identityCache, key, async (): Promise<EntryIdentity | null> => {
     const short = (identifier: string) => identifier.split('_')[0];
     if (accession) {
-      const entry = await fetchUniProtEntry(accession).catch(() => null);
-      if (!entry) return null;
+      // A failed request isn't "no such protein": incomplete, so it is asked again next time (once, a
+      // server's 500 kept the check off for that model)
+      let failed = false;
+      const entry = await fetchUniProtEntry(accession).catch(() => { failed = true; return null; });
+      if (!entry) return failed ? { title: '', proteins: [], names: [], complete: false } : null;
       return { title: entry.name, proteins: [entry.name], names: [entry.name, ...entry.names, short(entry.identifier), accession], complete: true };
     }
     let complete = true;

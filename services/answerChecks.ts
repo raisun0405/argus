@@ -23,6 +23,25 @@ export interface CheckTrail {
   corrected?: boolean; // Still another protein after that: the heading became the entry's own title
 }
 
+/** How an answer fared against its entry, for choosing between it and its retry. */
+export interface AnswerStanding {
+  wrongEntry: boolean; // It names another protein than the entry holds, or an entry that doesn't exist
+  faults: number | null; // Every place or name that doesn't match (null: it couldn't be checked)
+}
+
+/**
+ * Whether the retry replaces the first answer. The right protein in a real entry comes first: a retry
+ * about another protein never wins over one about the right protein, however many residues each gets
+ * wrong (it did: 3 faults plus the wrong protein beat 5 faults). Then the fewer faults wins, a tie
+ * keeping the first. A retry that couldn't be checked replaces the first only when the first named the
+ * wrong protein or entry.
+ */
+export const retryOutcome = (first: AnswerStanding, retry: AnswerStanding): 'kept' | 'first' | 'unverified' => {
+  if (retry.faults === null) return retry.wrongEntry ? 'first' : first.wrongEntry ? 'kept' : 'unverified';
+  if (first.wrongEntry !== retry.wrongEntry) return retry.wrongEntry ? 'first' : 'kept';
+  return retry.faults < (first.faults ?? Infinity) ? 'kept' : 'first';
+};
+
 export interface CheckRow {
   state: 'ok' | 'fixed' | 'issue' | 'skipped';
   text: string;

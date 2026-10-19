@@ -10,10 +10,12 @@
 // /api/analyze.
 
 import { ASKS_LITERATURE, LITERATURE_SITES, MAX_STEPS, canonicalStructureId, normalizeCheck, normalizePlan, normalizeSources, normalizeWrite } from '../services/investigationPlan';
+import { readJsonBody } from '../services/requestBody';
 
 export const config = { runtime: 'edge' };
 
 // --- CONFIG ---
+const MAX_BODY_BYTES = 64_000; // A request's body is read no further than this (the findings take up to 7,000 characters)
 // NVIDIA Nemotron on Nebius Token Factory (OpenAI-compatible); NEMOTRON_MODEL picks another model
 const LLM_ENDPOINT = 'https://api.tokenfactory.nebius.com/v1/chat/completions';
 // Nemotron 3 Super: in side-by-side tests on Argus's own questions it made fewer mistakes than Ultra,
@@ -442,12 +444,9 @@ export default async function handler(req: Request): Promise<Response> {
   const wait = rateLimitWait(visitor);
   if (wait > 0) return jsonResponse({ error: 'Too many requests in a minute; please wait a moment' }, 429, { 'Retry-After': String(wait) });
 
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON body' }, 400);
-  }
+  const read = await readJsonBody(req, MAX_BODY_BYTES);
+  if (!read.ok) return jsonResponse({ error: read.error === 'too large' ? 'Request too large' : 'Invalid JSON body' }, read.error === 'too large' ? 413 : 400);
+  const body = read.value as any;
   if (!body || typeof body !== 'object') return jsonResponse({ error: 'Invalid JSON body' }, 400);
 
   const question = field(body.question, MAX_QUESTION + 1);

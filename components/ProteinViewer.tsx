@@ -25,6 +25,7 @@ import {
   parseAlphaFoldId,
   plddtBand,
   plddtColor,
+  plddtIsFraction,
   plddtValue,
   type AlphaFoldModel,
 } from '../services/alphafoldService';
@@ -572,6 +573,10 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   selectedSiteRef.current = selectedSite;
   const isPredictedRef = useRef(isPredicted);
   isPredictedRef.current = isPredicted;
+  // A predicted model's confidence scale, read once per file (0-1 from ESMFold, 0-100 from AlphaFold)
+  const plddtFraction = useMemo(() => (isPredicted && pdbContent ? plddtIsFraction(pdbContent) : false), [isPredicted, pdbContent]);
+  const plddtFractionRef = useRef(plddtFraction);
+  plddtFractionRef.current = plddtFraction;
   const overlayResultRef = useRef(overlayResult);
   overlayResultRef.current = overlayResult;
 
@@ -1328,7 +1333,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
 
           // 5. Predicted models: per-residue confidence
           if (isPredictedRef.current && !atom.hetflag && typeof atom.b === 'number') {
-             subText = `${subText} · pLDDT ${Math.round(plddtValue(atom.b))} (${plddtBand(atom.b).label.toLowerCase()})`;
+             subText = `${subText} · pLDDT ${Math.round(plddtValue(atom.b, plddtFractionRef.current))} (${plddtBand(atom.b, plddtFractionRef.current).label.toLowerCase()})`;
           }
 
           setTooltip({ text: mainText, subtext: subText, x, y });
@@ -1459,7 +1464,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       // in the same grey; with nothing lit up, the model's own per-residue confidence
       const paeLit = colorScheme === 'pae' ? paeBox : null;
       const getPaeColor = (atom: any) => {
-        if (!paeLit) return plddtColor(atom.b);
+        if (!paeLit) return plddtColor(atom.b, plddtFraction);
         const i = atom.resi - paeFirst;
         if (i >= paeLit.scored[0] && i <= paeLit.scored[1]) return PAE_COLORS.scored;
         if (i >= paeLit.aligned[0] && i <= paeLit.aligned[1]) return PAE_COLORS.aligned;
@@ -1495,7 +1500,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
               case 'interactions': return { colorfunc: () => pocketBaseColor };
               case 'overlay': return { colorfunc: getOverlayColor };
               case 'pae': return { colorfunc: getPaeColor };
-              case 'confidence': return { colorfunc: (atom: any) => plddtColor(atom.b) };
+              case 'confidence': return { colorfunc: (atom: any) => plddtColor(atom.b, plddtFraction) };
               case 'element':
               default: return { colorscheme: 'Jmol' };
           }

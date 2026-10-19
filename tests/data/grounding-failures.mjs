@@ -45,10 +45,11 @@ rules = [{ match: 'residue_listing/1hho', act: '404' }, { match: 'molecules/1hho
 i = await g.inspectAnswer({ pdbId: '1HHO', title: 'Test', summary: '', highlights: [H('A', [87], 'His87')] }, 25000);
 check('not called "not an existing PDB entry": it can\'t be checked', i === null, brief(i));
 
-console.log('\n[P2: an entry that really doesn\'t exist (9ZZZ)]');
+// 0ZZZ: no PDB ID starts with 0, so it never will exist (9ZZZ, used before, was released in October 2026)
+console.log('\n[P2: an entry that really doesn\'t exist (0ZZZ)]');
 rules = [];
-i = await g.inspectAnswer({ pdbId: '9ZZZ', title: 'Test', summary: '', highlights: [H('A', [1], 'x')] }, 25000);
-check('still called "not an existing PDB entry"', i && i.exists === false && i.problems[0] === '9ZZZ is not an existing PDB entry', brief(i));
+i = await g.inspectAnswer({ pdbId: '0ZZZ', title: 'Test', summary: '', highlights: [H('A', [1], 'x')] }, 25000);
+check('still called "not an existing PDB entry"', i && i.exists === false && i.problems[0] === '0ZZZ is not an existing PDB entry', brief(i));
 
 console.log('\n[P2: the molecule list fails and the residue list comes back empty (2HHB)]');
 rules = [{ match: 'molecules/2hhb', act: 'fail' }, { match: 'residue_listing/2hhb', act: '404' }];
@@ -71,6 +72,19 @@ await sleep(300);
 rules = [];
 i = await g.inspectAnswer(wrongName, 25000);
 check('once the record loads, the same wrong name is caught', i && i.misnamed === 1 && i.problems.some(p => p.includes('says Cys793')), brief(i));
+
+console.log('\n[P18: an AlphaFold model\'s UniProt record fails once (AF-P01308-F1, a protein no part above touched)]');
+const model = { pdbId: 'AF-P01308-F1', title: 'Insulin', summary: '', highlights: [] };
+rules = [{ match: 'uniprotkb/P01308', act: 'fail' }];
+let who = await g.inspectIdentity(model, 25000);
+check('while it fails, the protein is not judged', who.status === 'unavailable', who.status);
+rules = [];
+who = await g.inspectIdentity(model, 25000);
+check('the next answer asks again and is judged (no wait for the failure to expire)', who.status === 'match', who.status);
+rules = [{ match: 'uniprotkb/P0DTC9', act: '404' }];
+const absent = await g.loadIdentity('AF-P0DTC9-F1');
+check('a record that really isn\'t there is still "no such protein"', absent === null, JSON.stringify(absent));
+rules = [];
 
 console.log('\n[P7: the tour and quiz are read even after a renumbering note]');
 rules = [];

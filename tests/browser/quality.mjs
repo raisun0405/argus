@@ -26,7 +26,7 @@ const header = id => `[...document.querySelectorAll('[data-section="${id}"] butt
 const badge = id => `(${header(id)}?.querySelector('span.rounded-full')?.textContent ?? '').trim()`;
 const shownStructure = id => `(document.querySelector('[data-structure-id]')?.textContent ?? '').trim() === ${JSON.stringify(id)} && !!(${V}?.getModel?.())`;
 const shot = async (b, name) => writeFileSync(`${OUT}/shots/quality/${name}.png`, Buffer.from((await b.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
-const serverSays = (b, id) => b.ev(`fetch('/api/quality', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: '${id}' }) }).then(r => r.json())`);
+const serverSays = (b, id) => b.ev(`fetch('/api/quality?id=${id}').then(r => r.json())`);
 const NAMES = { clashscore: 'Clashscore', rama: 'Ramachandran outliers', rota: 'Side-chain outliers', rsrz: 'Poor fit to the density', rfree: 'R-free, recalculated' };
 
 const b = await launch({ width: 1440, height: 900, dpr: 1, answer });
@@ -43,6 +43,8 @@ try {
   check('the Quality section is there, folded, with the resolution as its badge', (await b.waitFor(`${badge('quality')} === '2.05 Å'`, 30000)) >= 0 && await b.ev(`${header('quality')}.getAttribute('aria-expanded') === 'false'`), await b.ev(badge('quality')));
   await b.click(header('quality'));
   await b.waitFor(`document.querySelector('[data-quality-panel]')?.dataset.qualityStatus === 'ready'`, 30000);
+  // Before this test's own request below
+  check('the app asks by GET, with the ID in the address (so the CDN and the browser can keep it)', await b.ev(`performance.getEntriesByType('resource').some(e => e.name.endsWith('/api/quality?id=2ocj'))`));
   const q = await serverSays(b, '2ocj');
   check('the headline: method, resolution, deposited R-free', (await b.ev(text('[data-quality-headline]'))) === `X-ray · ${q.resolution} Å · R-free ${q.rFree}`, await b.ev(text('[data-quality-headline]')));
   const wrong = [];

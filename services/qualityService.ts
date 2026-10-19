@@ -1,4 +1,4 @@
-import { FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
+import { BoundedMap, FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
 
 // --- STRUCTURE QUALITY ---
 // How far to trust an experimental model, from its official wwPDB validation report (read by
@@ -52,17 +52,13 @@ export const formatValue = (m: QualityMetric) => `${m.key === 'rfree' ? m.value.
 export const qualityHeadline = (q: QualityReport) =>
   [METHOD_NAMES[q.method], q.resolution !== null ? `${q.resolution} Å` : '', q.rFree !== null ? `R-free ${q.rFree}` : ''].filter(Boolean).join(' · ');
 
-const cache = new Map<string, Promise<QualityReport>>();
+const cache = new BoundedMap<string, Promise<QualityReport>>(30);
 
 /** An experimental entry's validation summary (api/quality.ts reads the official report). */
 export const fetchQuality = (pdbId: string): Promise<QualityReport> =>
   memoize(cache, pdbId.trim().toLowerCase(), async () => {
-    const res = await fetch('/api/quality', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: pdbId.trim().toLowerCase() }),
-      signal: AbortSignal.timeout(20_000),
-    });
+    // A GET, so Vercel's CDN and the browser can keep the answer
+    const res = await fetch(`/api/quality?id=${encodeURIComponent(pdbId.trim().toLowerCase())}`, { signal: AbortSignal.timeout(20_000) });
     if (stoppedByFirewall(res)) throw new Error(FIREWALL_REASON);
     const body = await res.json().catch(() => null);
     if (!res.ok || !body) throw new Error(typeof body?.error === 'string' ? body.error.toLowerCase() : `the server answered ${res.status}`);
@@ -71,7 +67,7 @@ export const fetchQuality = (pdbId: string): Promise<QualityReport> =>
 
 // --- For the chat ---
 
-const known = new Map<string, QualityReport>();
+const known = new BoundedMap<string, QualityReport>(30);
 
 /** The validation summary of an experimental entry on screen, for the facts sent with a question about it. */
 export const rememberQuality = (structureId: string, report: QualityReport | null) => {

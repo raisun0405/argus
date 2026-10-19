@@ -70,5 +70,16 @@ for (const route of ['analyze', 'investigate', 'quality', 'report']) {
     check(`/api/${route}: ${label} is refused (${outcome})`, outcome === 403 || outcome === 'stopped by the bot check', String(outcome));
   }
 }
+// The app asks /api/quality by GET. An ID that is no PDB ID: the origin check comes first, and nothing is
+// cached or fetched from wwPDB
+const getQuality = async headers => {
+  const res = await fetch(`${BASE}/api/quality?id=x`, { headers });
+  await res.body?.cancel();
+  return res.headers.has('x-vercel-mitigated') ? 'stopped by the bot check' : res.status;
+};
+for (const [label, headers] of [['a foreign site', { origin: 'https://example.invalid' }], ['a cross-site fetch without an Origin', { 'sec-fetch-site': 'cross-site' }]]) {
+  const outcome = await getQuality(headers);
+  check(`/api/quality by GET: ${label} is refused (${outcome})`, outcome === 403 || outcome === 'stopped by the bot check', String(outcome));
+}
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASS');
 process.exit(failures ? 1 : 0);

@@ -15,7 +15,8 @@
 // POST /api/cofold -> a JSON result, streamed: whitespace while Boltz-2 runs (Edge functions must
 //                     start answering within 25 s; a prediction takes 10-60 s), then the JSON.
 
-import { chainTemplates, observedResidues, parseAtomSite, type CifAtom } from '../services/mmcif';
+import { chainTemplates, parseAtomSite, readChains, type CifAtom } from '../services/mmcif';
+import { readBody } from '../services/requestBody';
 
 export const config = { runtime: 'edge' };
 
@@ -236,9 +237,9 @@ async function pdbChains(pdbId: string, chainIds: string[]): Promise<ChainInput[
       ? new CofoldError(`${pdbId} is not a PDB entry`, 400)
       : new CofoldError(`Couldn't read ${pdbId} from RCSB. Try again in a moment.`);
   }
-  // RCSB numbers every position, modelled or not; the file says which ones have coordinates
-  const observed = cif ? observedResidues(cif) : null;
-  const templates = cif ? chainTemplates(cif, chainIds) : new Map<string, string>();
+  // RCSB numbers every position, modelled or not; the file says which ones have coordinates. Read once,
+  // for the chains asked for only
+  const { observed, templates } = cif ? readChains(cif, chainIds) : { observed: null, templates: new Map<string, string>() };
 
   return chainIds.map(id => {
     let found: { sequence: string; numbering: string[] } | null = null;
@@ -503,8 +504,9 @@ export default async function handler(req: Request): Promise<Response> {
   if (!ALLOWED_ORIGINS.has(origin) && !sameOrigin) return jsonResponse({ error: 'Forbidden origin' }, 403);
   if (!apiKey) return jsonResponse({ error: 'Co-folding is not set up on this server' }, 503);
 
-  const text = await req.text().catch(() => '');
-  if (text.length > MAX_BODY) return jsonResponse({ error: 'Request too large' }, 413);
+  // Read no further than the cap (a character takes up to 3 bytes), then held to it in characters
+  const text = await readBody(req, MAX_BODY * 3).catch(() => '');
+  if (text === null || text.length > MAX_BODY) return jsonResponse({ error: 'Request too large' }, 413);
   let body: unknown;
   try {
     body = JSON.parse(text);

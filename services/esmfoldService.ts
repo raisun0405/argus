@@ -5,6 +5,8 @@
 // kept in memory and addressed by an "ESM-<hash>" ID so the viewer can load
 // them like any other structure.
 
+import { BoundedMap } from './http';
+
 const ESMFOLD_URL = 'https://api.esmatlas.com/foldSequence/v1/pdb/';
 export const ESMFOLD_MAX_LENGTH = 400;
 const MIN_LENGTH = 20;
@@ -105,8 +107,8 @@ const hash = (s: string) => {
 const ESM_ID = /^ESM-[0-9A-Z]{6,8}$/i;
 export const isEsmFoldId = (id: string | null | undefined) => ESM_ID.test((id ?? '').trim());
 
-const predictions = new Map<string, EsmPrediction>();
-const pending = new Map<string, Promise<EsmPrediction>>();
+const predictions = new BoundedMap<string, EsmPrediction>(30);
+const pending = new BoundedMap<string, Promise<EsmPrediction>>(30);
 
 /** A prediction made earlier in this session (they live in memory only). */
 export const getPrediction = (id: string) => predictions.get(id.trim().toUpperCase());
@@ -134,12 +136,14 @@ export const foldSequence = (sequence: string, name?: string): Promise<EsmPredic
       if (!response.ok) throw new Error(`the ESMFold server responded ${response.status}`);
       const pdb = await response.text();
 
-      const plddt = pdb
+      const scores = pdb
         .split('\n')
         .filter(l => l.startsWith('ATOM') && l.slice(12, 16).trim() === 'CA')
         .map(l => parseFloat(l.slice(60, 66)))
-        .filter(Number.isFinite)
-        .map(b => (b <= 1 ? b * 100 : b));
+        .filter(Number.isFinite);
+      // The scale is the file's, not each value's: 0-1 when every score is (plddtIsFraction)
+      const fraction = scores.length > 0 && Math.max(...scores) <= 1;
+      const plddt = scores.map(b => (fraction ? b * 100 : b));
       if (plddt.length === 0) throw new Error('ESMFold returned no structure');
 
       const prediction: EsmPrediction = {

@@ -8,10 +8,12 @@
 // sees this function's response, not the upstream Token Factory call.
 
 import { normalizeAnalysis, normalizeHighlights } from '../services/normalizeAnalysis';
+import { readJsonBody } from '../services/requestBody';
 
 export const config = { runtime: 'edge' };
 
 // --- CONFIG ---
+const MAX_BODY_BYTES = 64_000; // A request's body is read no further than this
 // NVIDIA Nemotron on Nebius Token Factory (an OpenAI-compatible API). NEMOTRON_MODEL picks another
 // Token Factory model without a code change.
 const LLM_ENDPOINT = 'https://api.tokenfactory.nebius.com/v1/chat/completions';
@@ -252,13 +254,10 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  // Parse body
-  let body: { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown; lastQuiz?: unknown; tourSoFar?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResponse({ error: 'Invalid JSON body' }, 400);
-  }
+  // Parse body (read no further than its cap: the query, the context, the facts and the tour so far fit in a fraction of it)
+  const read = await readJsonBody(req, MAX_BODY_BYTES);
+  if (!read.ok) return jsonResponse({ error: read.error === 'too large' ? 'Request too large' : 'Invalid JSON body' }, read.error === 'too large' ? 413 : 400);
+  const body = read.value as { query?: unknown; currentContext?: unknown; structureFacts?: unknown; quiz?: unknown; lastQuiz?: unknown; tourSoFar?: unknown };
   if (!body || typeof body !== 'object') {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }

@@ -192,6 +192,8 @@ const texts = [
 const wrongTexts = texts.filter(([value, want]) => offSiteLinksRemoved(value, 'https://argus.example') !== want).map(([value, want]) => `${value} -> ${offSiteLinksRemoved(value, 'https://argus.example')} (wanted ${want})`);
 check('only other sites\' addresses are removed, nothing else in a message', wrongTexts.length === 0, wrongTexts.join('; '));
 
+// A body is read no further than its cap (S5)
+check('a 50 KB report is refused as too large (413)', (await post(null, { raw: JSON.stringify({ message: 'm'.repeat(50_000) }) })).status === 413);
 console.error = realError;
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASS');
 process.exit(failures ? 1 : 0);

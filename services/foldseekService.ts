@@ -93,6 +93,7 @@ interface RawHit {
 // different constructs of one protein share most (~0.6-1.0); paralogs such as
 // p63 vs p73 (~55% identical) share few (~0.2).
 const SAME_SEQUENCE_JACCARD = 0.5;
+const MIN_SHARED_STRETCHES = 3; // Five-residue stretches two hits must share before they are compared at all
 
 const kmers = (seq: string, k = 3) => {
   const set = new Set<string>();
@@ -192,11 +193,18 @@ const addToGroup = (
 
 const byEvalue = (a: Group, b: Group) => a.best.eval - b.best.eval;
 
-const parseResults = (results: { db: string; alignments: RawHit[] | RawHit[][] }[], query: SimilarSearchQuery): SimilarSearchResult => {
+/** Foldseek's hits grouped into rows: proteins by family, PDB entries by sequence (exported for its tests). */
+export const parseResults = (results: { db: string; alignments: RawHit[] | RawHit[][] }[], query: SimilarSearchQuery): SimilarSearchResult => {
   const excludeAcc = new Set(query.excludeAccessions.map(a => a.toUpperCase()));
   const excludePdb = new Set(query.excludePdbIds.map(p => p.toUpperCase()));
   const proteinGroups = new Map<string, Group>();
   const pdbGroups = new Map<string, Group>();
+  // The PDB groups holding each five-residue word, and the order they were made in. A hit is compared
+  // only with the groups it shares such a word with: each was compared with every group so far, tens
+  // of millions of steps for a well-known fold, on the main thread. Five residues, not three: of three
+  // there are only 8,000, so most groups hold most of them; the same protein shares long stretches
+  const groupsByWord = new Map<string, Group[]>();
+  const madeAt = new Map<Group, number>();
   const seenPdb = new Set<string>();
   let sameProtein = 0;
   let total = 0;
@@ -233,13 +241,32 @@ const parseResults = (results: { db: string; alignments: RawHit[] | RawHit[][] }
         // Mutants / other constructs of the same relative collapse into one row
         const fingerprint = hit.tSeq ? kmers(hit.tSeq) : null;
         let key = `${hit.taxName ?? ''}|${Math.round(hit.seqId)}`;
-        if (fingerprint) {
-          const match = [...pdbGroups.values()].find(g => g.kmers && jaccard(g.kmers, fingerprint) >= SAME_SEQUENCE_JACCARD);
+        const stretches = hit.tSeq ? kmers(hit.tSeq, 5) : null;
+        if (fingerprint && stretches) {
+          // The first group made (as before) whose fingerprint is at least half alike, among those sharing
+          // a few stretches (two unrelated proteins of 900 residues share one by chance about one time in
+          // four; the same protein, hundreds)
+          const shared = new Map<Group, number>();
+          for (const word of stretches) for (const g of groupsByWord.get(word) ?? []) shared.set(g, (shared.get(g) ?? 0) + 1);
+          const enough = Math.min(MIN_SHARED_STRETCHES, stretches.size);
+          let match: Group | undefined;
+          for (const [g, count] of shared) {
+            if (count < enough || (match && madeAt.get(g)! > madeAt.get(match)!)) continue;
+            if (jaccard(g.kmers!, fingerprint) >= SAME_SEQUENCE_JACCARD) match = g;
+          }
           key = match ? match.key : `seq:${pdbId}`;
         }
         addToGroup(pdbGroups, key, tidyTitle(m[3]) || pdbId, hit, { structureId: pdbId, label: `${pdbId} · ${m[2]}` }, false);
         const group = pdbGroups.get(key)!;
-        group.kmers ??= fingerprint ?? undefined;
+        if (!madeAt.has(group)) madeAt.set(group, madeAt.size);
+        if (!group.kmers && fingerprint && stretches) {
+          group.kmers = fingerprint;
+          for (const word of stretches) {
+            const holding = groupsByWord.get(word);
+            if (holding) holding.push(group);
+            else groupsByWord.set(word, [group]);
+          }
+        }
       }
     }
   }

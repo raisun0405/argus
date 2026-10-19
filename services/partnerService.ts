@@ -1,6 +1,7 @@
 import type { Highlight, InteractionPartner, PartnerQuery, PartnerSearchResult } from '../types';
 import { fetchSiftsMapping } from './variantService';
 import { fetchPdbFile } from './structureFiles';
+import { BoundedMap } from './http';
 
 // --- INTERACTION PARTNERS (STRING) AND SOLVED COMPLEXES (RCSB PDB) ---
 // STRING scores how likely two proteins work together (experiments, curated databases,
@@ -182,8 +183,8 @@ const fetchEntrySummaries = async (ids: string[]): Promise<Map<string, { title?:
 
 // --- SEARCH ---
 
-const searches = new Map<string, PartnerSearchResult>(); // Structure key -> latest result (chat facts)
-const pending = new Map<string, Promise<PartnerSearchResult>>(); // Accession -> search in flight or done
+const searches = new BoundedMap<string, PartnerSearchResult>(20); // Structure key -> latest result (chat facts)
+const pending = new BoundedMap<string, Promise<PartnerSearchResult>>(20); // Accession -> search in flight or done
 
 const keyOf = (structureId: string) => structureId.trim().toUpperCase();
 

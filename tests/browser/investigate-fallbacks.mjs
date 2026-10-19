@@ -20,7 +20,11 @@ ws.addEventListener('message', (e) => {
   const m = JSON.parse(e.data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   if (m.method === 'Runtime.exceptionThrown') pageErrors.push(m.params.exceptionDetails.exception?.description?.split('\n')[0] ?? m.params.exceptionDetails.text);
-  if (m.method === 'Fetch.requestPaused') {
+  if (m.method === 'Fetch.requestPaused' && m.params.request.url.includes('files.rcsb.org')) {
+    // The entry the plan names is no entry: RCSB answers 404 for its file here (9ZZZ was released in
+    // October 2026, and no unused four-character ID can be relied on)
+    send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 404, responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }], body: '' });
+  } else if (m.method === 'Fetch.requestPaused') {
     const body = JSON.parse(m.params.request.postData ?? '{}');
     seen.push(body.stage);
     const { status, body: reply } = answer(body.stage, body);
@@ -45,7 +49,7 @@ const shot = async (name) => {
 
 try {
   await send('Page.enable'); await send('Runtime.enable');
-  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/investigate*', requestStage: 'Request' }] });
+  await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/investigate*', requestStage: 'Request' }, { urlPattern: '*files.rcsb.org/download/9ZZZ*', requestStage: 'Request' }] });
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
   await send('Page.navigate', { url: `${BASE}/app` });
   await waitFor(`!!document.querySelector('textarea') && document.querySelector('[data-structure-id]')?.textContent.trim() === '1TRZ'`);

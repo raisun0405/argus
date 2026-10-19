@@ -111,5 +111,8 @@ delete process.env.NEBIUS_API_KEY;
 res = await call(PLAN);
 check('no key -> 500', res.status === 500);
 
+// A body is read no further than its cap (S5)
+check('a 300 KB body is refused as too large (413)', (await call(null, { raw: JSON.stringify({ stage: 'plan', question: 'x', padding: 'p'.repeat(300_000) }) })).status === 413);
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);
 process.exit(failures ? 1 : 0);

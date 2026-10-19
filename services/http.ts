@@ -28,6 +28,39 @@ export const memoize = <T,>(cache: Map<string, Promise<T>>, key: string, load: (
 };
 
 /**
+ * A Map that keeps only its newest `max` entries: one set past that drops the least recently used
+ * (reading an entry counts as using it). The services keep what they fetch in these, so a long session
+ * doesn't hold every structure, confidence map and file it ever loaded (a phone tab gave out). onEvict
+ * hears of each entry dropped that way, for stores kept alongside.
+ */
+export class BoundedMap<K, V> extends Map<K, V> {
+  private readonly max: number;
+  private readonly onEvict?: (key: K) => void;
+  constructor(max: number, onEvict?: (key: K) => void) {
+    super();
+    this.max = max;
+    this.onEvict = onEvict;
+  }
+  get(key: K): V | undefined {
+    if (!super.has(key)) return undefined;
+    const value = super.get(key) as V;
+    super.delete(key);
+    super.set(key, value);
+    return value;
+  }
+  set(key: K, value: V): this {
+    super.delete(key);
+    super.set(key, value);
+    while (this.size > this.max) {
+      const oldest = this.keys().next().value as K;
+      super.delete(oldest);
+      this.onEvict?.(oldest);
+    }
+    return this;
+  }
+}
+
+/**
  * Whether the hosting's firewall stopped a request to the site's own functions before it reached them.
  * Vercel's bot check answers with its challenge page instead (403 or 429, HTML) and marks it
  * x-vercel-mitigated. A browser passes the check when it loads a page, so a reload is the way on.

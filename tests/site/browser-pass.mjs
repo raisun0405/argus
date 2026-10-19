@@ -1,7 +1,8 @@
 // With Bot Protection on: does a browser still get the app and reach the AI functions? Loads the live app in
 // Chrome, then posts an empty body to each AI function from inside the page (the function refuses it before
-// any AI call, so no credit is spent). Run once as headless Chrome says it is, once with a normal Chrome
-// user agent. Error reports are kept in the browser (on a live site they would be emailed).
+// any AI call, so no credit is spent) and asks for one quality report. Run once as headless Chrome says it
+// is, once with a normal Chrome user agent. Error reports are kept in the browser (on a live site they
+// would be emailed).
 //   node tf-browser-pass.mjs <base>
 import { launch, sleep } from '../lib/browser.mjs';
 const BASE = (process.argv[2] ?? 'https://argus-zeta-rouge.vercel.app').replace(/\/$/, '');
@@ -35,6 +36,11 @@ for (const [label, ua] of [['headless Chrome as it is', null], ['Chrome with a n
       for (const [route, r] of Object.entries(results)) {
         check(`/api/${route} from the page reaches the function`, !r.mitigated && r.status === 400 && /json/.test(r.type ?? ''), r);
       }
+      // A quality report by GET, as the app asks: each pass is a fresh browser, so the second one's copy
+      // comes from Vercel's CDN rather than the function
+      const quality = await b.ev(`fetch('/api/quality?id=4hhb').then(async r => ({ status: r.status, id: (await r.json()).id, cache: r.headers.get('cache-control'), vercel: r.headers.get('x-vercel-cache') }))`);
+      check('/api/quality by GET serves the report, kept an hour by the browser', quality.status === 200 && quality.id === '4hhb' && /max-age=3600/.test(quality.cache ?? ''), quality);
+      if (ua) check('...and the second fresh browser gets the CDN\'s copy', /HIT|STALE/.test(quality.vercel ?? ''), quality);
     }
   } finally {
     b.close();

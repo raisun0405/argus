@@ -35,8 +35,8 @@ check('the same place in a tour step and a measurement counts once; a measuremen
 i = await g.inspectAnswer(answer('4HHB', [{ chain: 'A', resi: [87], label: 'His87' }, { chain: 'A', resi: [87], label: 'Asp87' }]), 20000);
 check('two labels on one place: the worse outcome counts, once', i && i.residues === 0 && i.wrong === 1, counts(i));
 
-i = await g.inspectAnswer(answer('9ZZZ', [{ chain: 'A', resi: [1] }]), 20000);
-check('an entry that does not exist', i && i.exists === false && i.problems[0] === '9ZZZ is not an existing PDB entry', counts(i));
+i = await g.inspectAnswer(answer('0ZZZ', [{ chain: 'A', resi: [1] }]), 20000);
+check('an entry that does not exist', i && i.exists === false && i.problems[0] === '0ZZZ is not an existing PDB entry', counts(i));
 
 console.log('[1M17: UniProt numbering]');
 const egfr = answer('1M17', [{ chain: 'A', resi: [793], label: 'Met793 (hinge)' }, { chain: 'A', resi: [745], label: 'Lys745' }]);

@@ -12,7 +12,14 @@ const answer = (query, context) => {
   if (/zinc/i.test(query)) return { pdbId: context?.pdbId ?? '1TRZ', title: 'Human insulin', summary: 'Two zinc ions hold the insulin hexamer together.', highlights: [], measurements: [], actions: ['color:element', 'show:metals'] };
   return { pdbId: context?.pdbId ?? '1TRZ', title: 'Structure', summary: 'A short canned answer.', highlights: [], measurements: [] };
 };
-const b = await launch({ width: 1440, height: 900, dpr: 1, answer });
+// An ID that is no entry: RCSB answers 404 for it here. A real unused ID can't be relied on: 9ZZZ itself
+// was released in October 2026, and every four-character ID is being handed out
+const MISSING = '9ZZZ';
+const b = await launch({
+  width: 1440, height: 900, dpr: 1, answer,
+  intercept: [`*data.rcsb.org/rest/v1/core/entry/${MISSING}*`],
+  onPaused: (p, send) => send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 404, responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }, { name: 'Content-Type', value: 'application/json' }], body: Buffer.from('{"status":404}').toString('base64') }),
+});
 const structure = `document.querySelector('[data-structure-id]')?.textContent.trim()`;
 const receipts = `document.querySelectorAll('[data-action-receipt]').length`;
 const lastItems = `[...([...document.querySelectorAll('[data-action-receipt]')].at(-1)?.querySelectorAll('li') ?? [])].map(li => li.dataset.actionState + ':' + li.textContent)`;
@@ -68,8 +75,8 @@ try {
   const calls = b.calls.length;
   items = await command('open 4HHB');
   check('"open 4HHB" opens it, under its title', items.length === 1 && /^done:Opened 4HHB: /.test(items[0]) && (await b.waitFor(`${structure} === '4HHB'`, 20000)) >= 0, `${JSON.stringify(items)} ${await b.ev(structure)}`);
-  items = await command('open 9ZZZ'); // No such entry (yet)
-  check('an ID that is no entry says so', items.length === 1 && items[0] === "failed:Couldn't open 9ZZZ: no PDB entry has that ID" && (await b.ev(structure)) === '4HHB', JSON.stringify(items));
+  items = await command(`open ${MISSING}`); // No such entry (RCSB's 404 above)
+  check('an ID that is no entry says so', items.length === 1 && items[0] === `failed:Couldn't open ${MISSING}: no PDB entry has that ID` && (await b.ev(structure)) === '4HHB', JSON.stringify(items));
   items = await command('show me 1hsg as a surface');
   const shape = await b.ev(`document.querySelector('[role=group][aria-label="Visual mode"] button[aria-pressed=true]')?.textContent.trim()`);
   check('"show me 1hsg as a surface": opened, then made a surface', (await b.ev(structure)) === '1HSG' && shape === 'Surface' && items.length === 2 && items[1] === 'done:Shape: surface', `${await b.ev(structure)} ${shape} ${JSON.stringify(items)}`);

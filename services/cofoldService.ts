@@ -1,5 +1,5 @@
 import type { CofoldComparison, CofoldContact, CofoldPocket, CofoldRequest, CofoldResult, CofoldScores, Highlight, ProteinAnalysis, ResolvedLigand } from '../types';
-import { FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
+import { BoundedMap, FIREWALL_REASON, memoize, stoppedByFirewall } from './http';
 import { fetchPdbFile } from './structureFiles';
 import { fetchAlphaFoldStructure, parseAlphaFoldId } from './alphafoldService';
 import { getPrediction } from './esmfoldService';
@@ -528,8 +528,8 @@ const hash = (s: string) => {
   return (h >>> 0).toString(36).toUpperCase().padStart(7, '0');
 };
 
-const predictions = new Map<string, CofoldResult>();
-const runs = new Map<string, Promise<CofoldResult>>();
+const predictions = new BoundedMap<string, CofoldResult>(30);
+const runs = new BoundedMap<string, Promise<CofoldResult>>(30);
 
 /** A prediction made earlier in this session (they live in memory only). */
 export const getCofold = (id: string) => predictions.get(id.trim().toUpperCase());

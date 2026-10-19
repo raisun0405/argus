@@ -15,6 +15,7 @@
 // report came in on, so asking another of the deployment's addresses doesn't buy another count.
 
 import { alertEmail, ALERTS_PER_HOUR, REPEAT_HOURS, type AlertEmail, type AlertReport } from '../services/alertEmail';
+import { readBody } from '../services/requestBody';
 
 export const config = { runtime: 'edge' };
 
@@ -156,8 +157,9 @@ export default async function handler(req: Request): Promise<Response> {
   const visitor = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'local';
   if (tooMany(visitor)) return new Response(null, { status: 429 });
 
-  const raw = await req.text();
-  if (raw.length > MAX_BODY_CHARS) return new Response(null, { status: 413 });
+  // Read no further than the cap (a character takes up to 3 bytes), then held to it in characters
+  const raw = await readBody(req, MAX_BODY_CHARS * 3).catch(() => '');
+  if (raw === null || raw.length > MAX_BODY_CHARS) return new Response(null, { status: 413 });
   let data: any;
   try {
     data = JSON.parse(raw);

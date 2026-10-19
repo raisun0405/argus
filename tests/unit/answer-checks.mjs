@@ -3,7 +3,7 @@
 //   node tf-checks-unit.mjs <project root>
 import '../lib/ts-hooks.mjs';
 import { ROOT_URL } from '../lib/env.mjs';
-const { buildChecks } = await import(`${ROOT_URL}services/answerChecks.ts`);
+const { buildChecks, retryOutcome } = await import(`${ROOT_URL}services/answerChecks.ts`);
 
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ' — ' + detail : ''}`); if (!ok) failures++; };
@@ -114,6 +114,26 @@ const show = c => JSON.stringify({ status: c.status, summary: c.summary, rows: c
 {
   const c = buildChecks('4HHB', marks({ residues: 1, missing: 1, problems: ['A:300 is not in this file (chain A has residues 1-141)'] }), named('Hemoglobin'), { retry: { entry: '4HHB', title: 'Hemoglobin', missing: false, holds: '', problems: 1, outcome: 'unverified' } });
   check('second answer couldn\'t be checked: the first stands, and the row says why', c.status === 'issues' && c.rows.some(r => r.state === 'skipped' && r.text === "The first answer didn't match 4HHB in 1 place. It went back to the AI once, but the second answer couldn't be checked, so this is the first answer"), show(c));
+}
+
+console.log('== The first answer or its retry (retryOutcome)');
+{
+  const right = (faults) => ({ wrongEntry: false, faults });
+  const wrong = (faults) => ({ wrongEntry: true, faults });
+  const cases = [
+    // A retry about another protein never beats one about the right protein (P15: 3 + wrong protein beat 5)
+    ['right protein, 5 faults vs another protein, 3 faults', right(5), wrong(3), 'first'],
+    ['another protein, 0 faults vs the right protein, 9 faults', wrong(0), right(9), 'kept'],
+    ['both right: fewer faults wins', right(5), right(3), 'kept'],
+    // All the faults count, not the eight the model is shown (P14: 20 fixed to 10 looked like 8 vs 8)
+    ['both right: 20 faults vs 10', right(20), right(10), 'kept'],
+    ['a tie keeps the first', right(4), right(4), 'first'],
+    ['both about another protein: fewer faults wins', wrong(6), wrong(2), 'kept'],
+    ['retry unchecked, first about another protein: the retry', wrong(0), { wrongEntry: false, faults: null }, 'kept'],
+    ['retry unchecked, first right: the first, its faults shown', right(3), { wrongEntry: false, faults: null }, 'unverified'],
+    ['retry unchecked and about another protein: the first', wrong(0), { wrongEntry: true, faults: null }, 'first'],
+  ];
+  for (const [name, first, retry, want] of cases) check(`${name} -> ${want}`, retryOutcome(first, retry) === want, retryOutcome(first, retry));
 }
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASS');
 process.exit(failures ? 1 : 0);

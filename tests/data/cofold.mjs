@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 const FX = FIXTURES;
 const read = (f) => readFileSync(`${FX}/${f}`, 'utf8');
-const { chainTemplates, observedResidues, parseAtomSite } = await import(`${ROOT_URL}services/mmcif.ts`);
+const { chainTemplates, observedResidues, parseAtomSite, readChains } = await import(`${ROOT_URL}services/mmcif.ts`);
 
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail !== '' ? ' — ' + detail : ''}`); if (!ok) failures++; };
@@ -33,6 +33,14 @@ process.on('unhandledRejection', (e) => { failures++; console.log('UNHANDLED', e
   const t3 = chainTemplates(cif3, ['A']).get('A');
   check('3PTB template drops anisotropic B-factors if any', !t3.includes('_atom_site_anisotrop.'));
   check('3PTB template has no calcium or benzamidine rows', !/^HETATM/m.test(t3));
+
+  // Read once, for the chains asked for only (S4): the same residues and templates as reading the whole file
+  const both = readChains(cif, ['A', 'B']);
+  const same = (x, y) => JSON.stringify([...(x ?? [])].sort()) === JSON.stringify([...(y ?? [])].sort());
+  check('readChains: the residues with coordinates of A and B, as the whole-file reading has them', same(both.observed.get('A'), obs.get('A')) && same(both.observed.get('B'), obs.get('B')));
+  check('...only the chains asked for', [...both.observed.keys()].sort().join(',') === 'A,B', [...both.observed.keys()].join(','));
+  check('...and the same templates', both.templates.get('A') === a && both.templates.get('B') === t.get('B'));
+  check('3PTB, chain A only: insertion codes kept', same(readChains(cif3, ['A']).observed.get('A'), obs3.get('A')));
 }
 
 // ---------- api/cofold.ts (fetch mocked) ----------

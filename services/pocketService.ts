@@ -1,6 +1,7 @@
 import type { Pocket, PocketModel, PocketPrediction, PocketResidue } from '../types';
 import { alphaFoldId, parseAlphaFoldId } from './alphafoldService';
 import { isEsmFoldId } from './esmfoldService';
+import { BoundedMap } from './http';
 
 // --- POCKET RADAR (ligand-binding pockets predicted by P2Rank, served by PrankWeb) ---
 // PrankWeb (ELIXIR CZ) runs P2Rank on PDB entries and AlphaFold DB models: keyless, CORS-enabled
@@ -279,7 +280,7 @@ const annotateLigands = (pockets: Pocket[], pdbText: string) => {
 
 // --- LOADING ---
 
-const results = new Map<string, PocketPrediction>(); // `${key}|${model}` -> prediction (successful ones only)
+const results = new BoundedMap<string, PocketPrediction>(10); // `${key}|${model}` -> prediction (successful ones only)
 
 /** The best prediction already loaded for a structure this session, without asking PrankWeb. */
 export const cachedPockets = (structureId: string): PocketPrediction | null => {

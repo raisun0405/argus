@@ -1,6 +1,6 @@
 import { superpose, type Vec3 } from './superpose';
 import { ONE_LETTER, WATERS } from './structureModel';
-import { memoize } from './http';
+import { BoundedMap, memoize } from './http';
 import { parseAlphaFoldId } from './alphafoldService';
 import { isEsmFoldId } from './esmfoldService';
 
@@ -68,7 +68,9 @@ const chainsOf = (pdb: string): Chain[] => {
 
 /**
  * Global alignment with affine gaps (Gotoh), free at the ends (one construct can be longer than
- * the other). Returns the aligned positions [i in a, j in b] and the score.
+ * the other). Returns the aligned positions [i in a, j in b] and the score. The scores are kept a row
+ * at a time and only the way back for every cell: 3 bytes a cell (it was 15, 240 MB for two chains of
+ * 4,000 residues), with no small arrays made per cell.
  */
 export const alignSequences = (a: string, b: string) => {
   const n = a.length;
@@ -79,42 +81,72 @@ export const alignSequences = (a: string, b: string) => {
   const EXTEND = -1;
   const NEG = -1e9;
   const w = m + 1;
-  const M = new Float32Array((n + 1) * w).fill(NEG); // a[i-1] with b[j-1]
-  const X = new Float32Array((n + 1) * w).fill(NEG); // a[i-1] against a gap
-  const Y = new Float32Array((n + 1) * w).fill(NEG); // b[j-1] against a gap
+  // Row i-1 (p) and row i (c) of: M, a[i-1] with b[j-1]; X, a[i-1] against a gap; Y, b[j-1] against a gap
+  let Mp = new Float32Array(w).fill(NEG);
+  let Xp = new Float32Array(w).fill(NEG);
+  let Yp = new Float32Array(w).fill(NEG);
+  let Mc = new Float32Array(w);
+  let Xc = new Float32Array(w);
+  let Yc = new Float32Array(w);
+  // Which of M, X, Y each cell came from (0, 1, 2)
   const tM = new Uint8Array((n + 1) * w);
   const tX = new Uint8Array((n + 1) * w);
   const tY = new Uint8Array((n + 1) * w);
-  M[0] = 0;
-  for (let i = 1; i <= n; i++) X[i * w] = 0; // Leading gaps are free
-  for (let j = 1; j <= m; j++) Y[j] = 0;
-  const best3 = (p: number, q: number, r: number): [number, number] => (p >= q && p >= r ? [p, 0] : q >= r ? [q, 1] : [r, 2]);
+  // The last column of every row, where a trailing gap may start
+  const lastM = new Float32Array(n + 1);
+  const lastX = new Float32Array(n + 1);
+  const lastY = new Float32Array(n + 1);
+  Mp[0] = 0;
+  for (let j = 1; j <= m; j++) Yp[j] = 0; // Leading gaps are free
+  lastM[0] = Mp[m];
+  lastX[0] = Xp[m];
+  lastY[0] = Yp[m];
   for (let i = 1; i <= n; i++) {
+    Mc[0] = NEG;
+    Xc[0] = 0; // Leading gaps are free
+    Yc[0] = NEG;
+    const ai = a.charCodeAt(i - 1);
+    const known = a[i - 1] !== 'X';
+    const row = i * w;
     for (let j = 1; j <= m; j++) {
-      const c = i * w + j;
-      const d = (i - 1) * w + (j - 1);
-      const s = a[i - 1] === b[j - 1] && a[i - 1] !== 'X' ? MATCH : MISMATCH;
-      const [vm, fm] = best3(M[d], X[d], Y[d]);
-      M[c] = vm + s;
-      tM[c] = fm;
-      const up = (i - 1) * w + j;
-      const [vx, fx] = best3(M[up] + OPEN, X[up] + EXTEND, Y[up] + OPEN);
-      X[c] = vx;
-      tX[c] = fx;
-      const left = i * w + (j - 1);
-      const [vy, fy] = best3(M[left] + OPEN, X[left] + OPEN, Y[left] + EXTEND);
-      Y[c] = vy;
-      tY[c] = fy;
+      const c = row + j;
+      const s = known && ai === b.charCodeAt(j - 1) ? MATCH : MISMATCH;
+      // Diagonal, from row i-1, column j-1
+      let v = Mp[j - 1];
+      let f = 0;
+      if (Xp[j - 1] > v) { v = Xp[j - 1]; f = 1; }
+      if (Yp[j - 1] > v) { v = Yp[j - 1]; f = 2; }
+      Mc[j] = v + s;
+      tM[c] = f;
+      // Up, from row i-1, column j
+      v = Mp[j] + OPEN;
+      f = 0;
+      if (Xp[j] + EXTEND > v) { v = Xp[j] + EXTEND; f = 1; }
+      if (Yp[j] + OPEN > v) { v = Yp[j] + OPEN; f = 2; }
+      Xc[j] = v;
+      tX[c] = f;
+      // Left, from row i, column j-1
+      v = Mc[j - 1] + OPEN;
+      f = 0;
+      if (Xc[j - 1] + OPEN > v) { v = Xc[j - 1] + OPEN; f = 1; }
+      if (Yc[j - 1] + EXTEND > v) { v = Yc[j - 1] + EXTEND; f = 2; }
+      Yc[j] = v;
+      tY[c] = f;
     }
+    lastM[i] = Mc[m];
+    lastX[i] = Xc[m];
+    lastY[i] = Yc[m];
+    [Mp, Mc] = [Mc, Mp];
+    [Xp, Xc] = [Xc, Xp];
+    [Yp, Yc] = [Yc, Yp];
   }
-  // Trailing gaps are free too: the best end anywhere on the last row or column
+  // Trailing gaps are free too: the best end anywhere on the last row (now Mp, Xp, Yp) or column
   let end = { i: n, j: m, state: 0, score: NEG };
-  const consider = (i: number, j: number) => {
-    const c = i * w + j;
-    for (const [state, score] of [[0, M[c]], [1, X[c]], [2, Y[c]]] as const) if (score > end.score) end = { i, j, state, score };
+  const consider = (i: number, j: number, scores: readonly number[]) => {
+    scores.forEach((score, state) => { if (score > end.score) end = { i, j, state, score }; });
   };
-  for (let j = 0; j <= m; j++) consider(n, j);
-  for (let i = 0; i <= n; i++) consider(i, m);
+  for (let j = 0; j <= m; j++) consider(n, j, [Mp[j], Xp[j], Yp[j]]);
+  for (let i = 0; i <= n; i++) consider(i, m, [lastM[i], lastX[i], lastY[i]]);
   const pairs: [number, number][] = [];
   let { i, j, state } = end;
   while (i > 0 && j > 0) {
@@ -133,6 +165,37 @@ export const alignSequences = (a: string, b: string) => {
     }
   }
   return { pairs: pairs.reverse(), score: end.score };
+};
+
+// Before aligning: the three-residue words two chains share, as a share of the fewer. Two chains of
+// the same protein (90% identical over half the shorter) share well over a third; different proteins
+// a few percent
+const MIN_WORD_SHARE = 0.2;
+const ALIGN_BUDGET = 40_000_000; // Cells aligned for one overlay at most (about a second)
+const words = (sequence: string) => {
+  const found = new Set<string>();
+  for (let i = 0; i + 3 <= sequence.length; i++) {
+    const word = sequence.slice(i, i + 3);
+    if (!word.includes('X')) found.add(word);
+  }
+  return found;
+};
+const wordShare = (a: Set<string>, b: Set<string>) => {
+  const [fewer, more] = a.size <= b.size ? [a, b] : [b, a];
+  if (fewer.size === 0) return 0;
+  let shared = 0;
+  for (const word of fewer) if (more.has(word)) shared++;
+  return shared / fewer.size;
+};
+
+// Alignments already made, so picking another chain (or the file gaining AlphaFill's ligands) doesn't
+// redo them: the last few dozen pairs of sequences, the oldest dropped first
+const alignments = new BoundedMap<string, ReturnType<typeof alignSequences>>(48);
+const alignedPair = (a: string, b: string) => {
+  const key = `${a}\n${b}`;
+  const found = alignments.get(key) ?? alignSequences(a, b);
+  alignments.set(key, found);
+  return found;
 };
 
 // --- The fit ---
@@ -213,16 +276,34 @@ export const computeOverlay = (mainPdb: string, otherPdb: string, id: string, op
   if (mains.length === 0) throw new Error('the structure on screen has no protein chain to line up');
   if (others.length === 0) throw new Error(`${id} has no protein chain to line up`);
 
-  // Every pair of chains, aligning each distinct pair of sequences once
-  const aligned = new Map<string, ReturnType<typeof alignSequences>>();
-  const candidates = mains.flatMap(a => others.map(b => {
-    const key = `${a.sequence}\n${b.sequence}`;
-    if (!aligned.has(key)) aligned.set(key, alignSequences(a.sequence, b.sequence));
-    const { pairs, score } = aligned.get(key)!;
-    const same = pairs.filter(([i, j]) => a.sequence[i] === b.sequence[j]).length;
+  // Every pair of chains that may be the same protein, aligning each distinct pair of sequences once.
+  // A look at their three-residue words first: the same protein shares most of them, and aligning every
+  // pair of a complex of 60 different chains took minutes. The pair asked for, and the most alike, are
+  // always aligned; the rest most alike first, within a budget
+  const wanted = (a: Chain, b: Chain) => (!options.mainChain || a.chain === options.mainChain) && (!options.otherChain || b.chain === options.otherChain);
+  const asked = (a: Chain, b: Chain) => Boolean(options.mainChain || options.otherChain) && wanted(a, b);
+  const wordsOf = new Map([...mains, ...others].map(c => [c.sequence, words(c.sequence)]));
+  const pairs = mains.flatMap(a => others.map(b => ({ a, b, key: `${a.sequence}\n${b.sequence}`, alike: wordShare(wordsOf.get(a.sequence)!, wordsOf.get(b.sequence)!) })));
+  // Each distinct pair of sequences costs once (a homodimer's four chain pairs are one alignment)
+  const taken = new Set<string>();
+  let cells = 0;
+  [...pairs].sort((x, y) => y.alike - x.alike).forEach((p, k) => {
+    if (taken.has(p.key)) return;
+    const cost = p.a.sequence.length * p.b.sequence.length;
+    if (k === 0 || asked(p.a, p.b) || (p.alike >= MIN_WORD_SHARE && cells + cost <= ALIGN_BUDGET)) {
+      taken.add(p.key);
+      cells += cost;
+    }
+  });
+  // In the chains' own order, so that between equally good pairs the same one is picked as before
+  const thisTime = new Map<string, ReturnType<typeof alignSequences>>();
+  const candidates = pairs.filter(p => taken.has(p.key)).map(({ a, b, key }) => {
+    if (!thisTime.has(key)) thisTime.set(key, alignedPair(a.sequence, b.sequence));
+    const { pairs: aligned, score } = thisTime.get(key)!;
+    const same = aligned.filter(([i, j]) => a.sequence[i] === b.sequence[j]).length;
     const shorter = Math.min(a.residues.length, b.residues.length);
-    return { a, b, pairs, score, identity: pairs.length ? same / pairs.length : 0, coverage: pairs.length / shorter, shared: same / shorter };
-  }));
+    return { a, b, pairs: aligned, score, identity: aligned.length ? same / aligned.length : 0, coverage: aligned.length / shorter, shared: same / shorter };
+  });
   // The same protein: nearly identical where the chains align, over at least half of the shorter
   // one (a shared tag or a short identical stretch is not enough)
   const usable = candidates
@@ -232,8 +313,7 @@ export const computeOverlay = (mainPdb: string, otherPdb: string, id: string, op
     const closest = Math.max(...candidates.map(c => c.shared));
     throw new Error(`${id} isn't the same protein: at most ${Math.round(closest * 100)}% of the sequences match`);
   }
-  const wanted = (c: (typeof usable)[number]) => (!options.mainChain || c.a.chain === options.mainChain) && (!options.otherChain || c.b.chain === options.otherChain);
-  const pick = usable.find(wanted)
+  const pick = usable.find(c => wanted(c.a, c.b))
     ?? usable.find(c => c.a.chain === options.mainChain && c.b.chain === c.a.chain)
     ?? usable.find(c => c.a.chain === options.mainChain)
     ?? usable[0];
@@ -312,7 +392,7 @@ const RCSB_GRAPHQL = 'https://data.rcsb.org/graphql';
 
 export interface SameProteinEntry { id: string; title: string; resolution: number | null; method: string }
 
-const entriesCache = new Map<string, Promise<SameProteinEntry[]>>();
+const entriesCache = new BoundedMap<string, Promise<SameProteinEntry[]>>(20);
 const postJson = async (url: string, body: unknown) => {
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   if (response.status === 204) return null; // RCSB search: no hits
@@ -372,7 +452,7 @@ export const PAIR_COLORS = { main: '#60a5fa', other: '#fb923c' };
 
 // --- For the chat ---
 
-const onScreen = new Map<string, OverlayResult>(); // Structure ID -> the overlay shown on it
+const onScreen = new BoundedMap<string, OverlayResult>(4); // Structure ID -> the overlay shown on it
 
 /** The overlay now on this structure (null when it closes), for the facts sent with a question. */
 export const rememberOverlay = (structureId: string, result: OverlayResult | null) => {

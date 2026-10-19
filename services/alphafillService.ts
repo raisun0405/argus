@@ -1,4 +1,4 @@
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 import { parseAlphaFoldId } from './alphafoldService';
 import { superpose, type Vec3 } from './superpose';
 import { parseAtomSite, type CifAtom } from './mmcif'; // AlphaFill serves its models as mmCIF
@@ -146,8 +146,8 @@ const titleCase = (code: string) => code.charAt(0) + code.slice(1).toLowerCase()
 
 // --- LOADING ---
 
-const results = new Map<string, Promise<AlphaFillResult | null>>(); // Accession -> result
-const loaded = new Map<string, AlphaFillResult>(); // Finished results, read synchronously for the chat facts
+const results = new BoundedMap<string, Promise<AlphaFillResult | null>>(6); // Accession -> result
+const loaded = new BoundedMap<string, AlphaFillResult>(6); // Finished results, read synchronously for the chat facts
 
 /**
  * AlphaFill's confident transplants for an AlphaFold model, moved into the model on screen

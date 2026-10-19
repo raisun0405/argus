@@ -29,8 +29,8 @@ import { THEME_LIST, type ThemeId } from '../themes';
 import { useTheme } from '../useTheme';
 import { searchSimilarStructures } from '../services/foldseekService';
 import { ESMFOLD_MAX_LENGTH, SequenceInput, foldSequence, parseSequenceInput } from '../services/esmfoldService';
-import { checkAnswer, checkIdentity, correctAnswer, correctIdentity, entryTitleToOpen, getStructureFacts, inspectAnswer, inspectIdentity, loadStructureFacts } from '../services/groundingService';
-import { collectChecks, type CheckTrail } from '../services/answerChecks';
+import { checkIdentity, correctAnswer, correctIdentity, entryTitleToOpen, getStructureFacts, inspectAnswer, inspectIdentity, loadStructureFacts } from '../services/groundingService';
+import { collectChecks, retryOutcome, type CheckTrail } from '../services/answerChecks';
 import { complexInterface, findPartners } from '../services/partnerService';
 import { cofoldAnalysis, cofoldAvailable, compareAnalysis, compareCofolds, defaultCofoldRequest, isCofoldId, parseCofoldCommand, parseCompareCommand, runCofold } from '../services/cofoldService';
 import InvestigationCard from './chat/InvestigationCard';
@@ -825,7 +825,8 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         const corrected = await correctAnswer(analysis);
         if (corrected) {
           const remaining = await inspectAnswer(corrected.analysis);
-          if (remaining !== null && remaining.problems.length < inspection.problems.length) {
+          // All of them counted: the list shown to the model stops at eight, so 20 faults fixed to 10 looked like no gain
+          if (remaining !== null && remaining.faults < inspection.faults) {
             analysis = corrected.analysis;
             inspection = remaining;
             trail.local = { renumbered: corrected.renumbered, moved: corrected.moved, examples: corrected.conversions };
@@ -859,18 +860,15 @@ const ReasoningEngine: React.FC<ReasoningEngineProps> = ({ onAnalysisComplete, o
         };
         try {
           const repaired = keepQuiz(await analyzeProteinQuery(repairQuery, analysis, repairFacts, { readCache: false, writeCache: false, onRateLimitWait, ...quizRequest, selection: selectionOn(analysis.pdbId), ...tourSoFar }));
-          const remaining = await checkAnswer(repaired);
+          const remaining = await inspectAnswer(repaired);
           const remainingIdentity = await checkIdentity(repaired);
-          let outcome: 'kept' | 'first' | 'unverified';
-          if (remaining === null) {
-            // The second answer couldn't be checked (its entry's records didn't load in time). It
-            // replaces the first only when the first named a protein or an entry that was plainly
-            // wrong; otherwise the first stands, its faults known and shown
-            outcome = remainingIdentity ? 'first' : identity || missingEntry ? 'kept' : 'unverified';
-          } else {
-            // Keep the correction unless it is no better than the first answer
-            outcome = remaining.length + (remainingIdentity ? 1 : 0) < issues.length ? 'kept' : 'first';
-          }
+          // Kept only when it is better: the right protein in a real entry first, then fewer faults
+          // (services/answerChecks.ts). Unchecked, it replaces the first only when the first named a
+          // protein or an entry that was plainly wrong; otherwise the first stands, its faults shown
+          const outcome = retryOutcome(
+            { wrongEntry: Boolean(identity) || missingEntry, faults: inspection?.faults ?? 0 },
+            { wrongEntry: Boolean(remainingIdentity) || remaining?.exists === false, faults: remaining?.faults ?? null },
+          );
           if (outcome === 'kept') analysis = repaired;
           trail.retry = { ...first, outcome };
         } catch (e) {

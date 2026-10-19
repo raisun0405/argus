@@ -42,6 +42,31 @@ export const cifTokens = (line: string): string[] => {
   return out;
 };
 
+/** The value at `index` of one mmCIF data row, without splitting the rest of it (as cifTokens reads it). */
+export const cifField = (line: string, index: number): string | undefined => {
+  let i = 0;
+  for (let n = 0; ; n++) {
+    while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+    if (i >= line.length) return undefined;
+    const quote = line[i];
+    let start = i;
+    let end: number;
+    if (quote === "'" || quote === '"') {
+      let j = i + 1;
+      while (j < line.length && !(line[j] === quote && (j + 1 === line.length || line[j + 1] === ' ' || line[j + 1] === '\t'))) j++;
+      start = i + 1;
+      end = j;
+      i = j + 1;
+    } else {
+      let j = i;
+      while (j < line.length && line[j] !== ' ' && line[j] !== '\t') j++;
+      end = j;
+      i = j;
+    }
+    if (n === index) return line.slice(start, end);
+  }
+};
+
 // '?' (unknown) and '.' (not applicable) are mmCIF's empty values
 const value = (raw: string | undefined) => (raw === undefined || raw === '?' || raw === '.' ? '' : raw);
 
@@ -65,16 +90,28 @@ const findLoops = (lines: string[], prefix: string): Loop[] => {
 
 /**
  * The polymer atom rows of each author chain in the first model: ATOM records plus modified residues
- * (HETATM rows of the chain's polymer entity, e.g. MSE); ligands and waters are left out.
+ * (HETATM rows of the chain's polymer entity, e.g. MSE); ligands and waters are left out. With `only`,
+ * just those chains: a row of another is passed over on its chain field alone, so a big entry (a
+ * ribosome, two of its chains asked for) isn't split into tens of millions of values in a function with
+ * 128 MB of memory.
  */
-const polymerRows = (lines: string[], loop: Loop) => {
+const polymerRows = (lines: string[], loop: Loop, only?: Set<string>) => {
   const col = (name: string) => loop.headers.indexOf(`_atom_site.${name}`);
   const [group, chain, entity, model, seq, icode] =
     ['group_PDB', 'auth_asym_id', 'label_entity_id', 'pdbx_PDB_model_num', 'auth_seq_id', 'pdbx_PDB_ins_code'].map(col);
   const byChain = new Map<string, { line: string; f: string[] }[]>();
   if (group < 0 || chain < 0) return { byChain, seq, icode };
-  const rows = lines.slice(loop.first, loop.end).map(line => ({ line, f: cifTokens(line) })).filter(r => r.f.length === loop.headers.length);
-  const firstModel = model >= 0 ? rows[0]?.f[model] : undefined;
+  // The first model is the first row's, whichever chain it is of
+  let firstRow: string[] | undefined;
+  for (let i = loop.first; i < loop.end && !firstRow; i++) {
+    const f = cifTokens(lines[i]);
+    if (f.length === loop.headers.length) firstRow = f;
+  }
+  const rows = lines.slice(loop.first, loop.end)
+    .filter(line => !only || only.has(cifField(line, chain) ?? ''))
+    .map(line => ({ line, f: cifTokens(line) }))
+    .filter(r => r.f.length === loop.headers.length);
+  const firstModel = model >= 0 ? firstRow?.[model] : undefined;
   const polymerEntity = new Map<string, string>(); // Author chain -> entity of its ATOM records
   if (entity >= 0) for (const r of rows) if (r.f[group] === 'ATOM' && !polymerEntity.has(r.f[chain])) polymerEntity.set(r.f[chain], r.f[entity]);
   for (const r of rows) {
@@ -94,13 +131,18 @@ const polymerRows = (lines: string[], loop: Loop) => {
  * kept, ligands and waters dropped) and without anisotropic B-factors. Every other category stays,
  * so the entity sequences a parser needs are still there. Chains without polymer atoms are left out.
  */
-export const chainTemplates = (cif: string, authChains: string[]): Map<string, string> => {
+export const chainTemplates = (cif: string, authChains: string[]): Map<string, string> => readChains(cif, authChains).templates;
+
+/** Templates for the chains asked for (chainTemplates) and the residues with coordinates in each (observedResidues), from one reading of the file. */
+export const readChains = (cif: string, authChains: string[]) => {
   const templates = new Map<string, string>();
+  const observed = new Map<string, Set<string>>();
   const lines = cif.split(/\r?\n/);
   const loops = findLoops(lines, '_atom_site');
   const site = loops.find(l => l.headers[0]?.startsWith('_atom_site.'));
-  if (!site) return templates;
-  const { byChain } = polymerRows(lines, site);
+  if (!site) return { templates, observed };
+  const { byChain, seq, icode } = polymerRows(lines, site, new Set(authChains));
+  if (seq >= 0) for (const [chain, rows] of byChain) observed.set(chain, new Set(rows.map(r => `${r.f[seq]}${icode >= 0 ? value(r.f[icode]) : ''}`)));
   for (const chain of authChains) {
     const atoms = byChain.get(chain) ?? [];
     if (atoms.length === 0) continue;
@@ -115,7 +157,7 @@ export const chainTemplates = (cif: string, authChains: string[]): Map<string, s
     out.push(...lines.slice(next));
     templates.set(chain, out.join('\n'));
   }
-  return templates;
+  return { templates, observed };
 };
 
 /** Residues with coordinates, per author chain: author number plus insertion code ("25", "184A"). */

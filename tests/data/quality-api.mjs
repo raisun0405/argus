@@ -12,20 +12,40 @@ let ip = 0;
 const ask = (body, { origin = 'http://127.0.0.1:3100', method = 'POST' } = {}) => handler(new Request('http://127.0.0.1:3100/api/quality', {
   method, headers: { 'Content-Type': 'application/json', Origin: origin, 'x-real-ip': `10.30.0.${++ip}` }, ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
 }));
+// How the app asks: a GET from its own page, which browsers send without an Origin header
+const get = (id, headers = { 'Sec-Fetch-Site': 'same-origin' }) => handler(new Request(`http://127.0.0.1:3100/api/quality?id=${encodeURIComponent(id)}`, {
+  headers: { 'x-real-ip': `10.30.0.${++ip}`, ...headers },
+}));
+const cacheOf = res => res.headers.get('cache-control') ?? '';
 
 console.log('[what it serves]');
-check('GET is refused', (await ask(null, { method: 'GET' })).status === 405);
+check('PUT is refused', (await ask(null, { method: 'PUT' })).status === 405);
 check('another website is refused', (await ask({ id: '2ocj' }, { origin: 'https://evil.example' })).status === 403);
 check('something that is no PDB ID is refused', (await ask({ id: '../etc' })).status === 400 && (await ask({ id: 'AF-P04637-F1' })).status === 400);
-// An ID with no report: the first candidate wwPDB doesn't have
+let res = await get('2ocj');
+let body = await res.json();
+check('a GET from the page is served, kept a day by the CDN and an hour by the browser', res.status === 200 && body.id === '2ocj' && /s-maxage=86400/.test(cacheOf(res)) && /(^|[ ,])max-age=3600/.test(cacheOf(res)), `${res.status} ${cacheOf(res)}`);
+res = await get('2OCJ', { Origin: 'http://127.0.0.1:3100' });
+check('...and with the page\'s own Origin (any case of the ID)', res.status === 200 && (await res.json()).id === '2ocj', String(res.status));
+res = await get('2ocj', { Origin: 'https://evil.example' });
+check('a GET carrying another site\'s Origin is refused, and the refusal is never cached', res.status === 403 && cacheOf(res) === 'no-store', `${res.status} ${cacheOf(res)}`);
+res = await get('2ocj', { 'Sec-Fetch-Site': 'cross-site' });
+check('a GET from another site without an Origin (an image or script tag) is refused', res.status === 403, String(res.status));
+res = await get('../etc');
+check('a GET with no PDB ID is refused and not cached', res.status === 400 && cacheOf(res) === 'no-store', `${res.status} ${cacheOf(res)}`);
+check('a POST is still served (pages opened before the switch to GET)', (await (await ask({ id: '2ocj' })).json()).id === '2ocj');
+// An ID with no report: the first candidate wwPDB doesn't have (its file store answers a missing file
+// with 403, once 404)
 let absent = null;
-for (const id of ['9zzz', '9zzy', '9zzx', '9zzw']) {
+for (const id of ['1aaa', '2zzz', '9zxz', '9zzx']) {
   const head = await fetch(`https://files.wwpdb.org/pub/pdb/validation_reports/${id.slice(1, 3)}/${id}/${id}_validation.xml.gz`, { method: 'HEAD' });
-  if (head.status === 404) { absent = id; break; }
+  if (head.status === 404 || head.status === 403) { absent = id; break; }
 }
+check('an ID without a report is found to try', absent !== null);
 if (absent) {
-  const r = await (await ask({ id: absent })).json();
-  check(`an entry without a report (${absent}) says so`, r.missing === true && r.metrics.length === 0);
+  res = await get(absent);
+  const r = await res.json();
+  check(`an entry without a report (${absent}) says so, kept only an hour (its report may come)`, r.missing === true && r.metrics.length === 0 && /s-maxage=3600(,|$)/.test(cacheOf(res)), cacheOf(res));
 }
 
 console.log('\n[every value against RCSB, every percentile against the report file itself]');
@@ -36,7 +56,7 @@ const methods = new Set();
 let values = 0, valuesOk = 0, percentiles = 0, percentilesOk = 0;
 for (const e of rcsb) {
   const id = e.rcsb_id.toLowerCase();
-  const res = await ask({ id });
+  const res = await get(id);
   const q = await res.json();
   if (res.status !== 200 || q.missing) { check(`${e.rcsb_id}: a report`, false, `${res.status} ${JSON.stringify(q).slice(0, 80)}`); continue; }
   methods.add(q.method);

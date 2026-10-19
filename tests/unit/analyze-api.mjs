@@ -5,9 +5,11 @@ import { ROOT_URL } from '../lib/env.mjs';
 process.env.NEBIUS_API_KEY = 'test-key-not-real';
 let aiReply = null; // (body) => Response
 let lastAiBody = null;
+let aiCalls = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init) => {
   if (String(url).includes('api.tokenfactory.nebius.com')) {
+    aiCalls++;
     lastAiBody = JSON.parse(init.body);
     return aiReply(lastAiBody);
   }
@@ -83,8 +85,9 @@ check('the AI 500 -> 502 without details', res.status === 502 && !text500.includ
 
 // 6. oversized context is capped before it reaches the prompt
 aiReply = () => completion(JSON.stringify({ pdbId: '1trz', title: 'Insulin', summary: 's', highlights: [] }));
-const hugeHighlights = Array.from({ length: 500 }, (_, i) => ({ chain: 'A', resi: Array.from({ length: 200 }, (_, j) => j), label: 'x'.repeat(500), category: 'other' }));
-res = await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), title: 'T'.repeat(10000), highlights: hugeHighlights }, structureFacts: 'F'.repeat(100000) });
+// Every field well over its cap, the whole just under the body's (64 KB: a bigger body is refused, see 9b)
+const hugeHighlights = Array.from({ length: 60 }, (_, i) => ({ chain: 'A', resi: Array.from({ length: 60 }, (_, j) => j), label: 'x'.repeat(300), category: 'other' }));
+res = await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), title: 'T'.repeat(4000), highlights: hugeHighlights }, structureFacts: 'F'.repeat(10000) });
 const prompt = lastAiBody?.messages?.[1]?.content ?? '';
 check('huge context -> 200', res.status === 200, `got ${res.status}`);
 check('user prompt capped (< 8000 chars, ~2K tokens)', prompt.length < 8000, `${prompt.length} chars`);
@@ -129,6 +132,25 @@ check('...a selection that is not text is left out', !/Selected in the 3D view/.
 await call({ query: 'what is this residue?', currentContext: context });
 check('...and no selection, no line', !/Selected in the 3D view/.test(userPrompt()));
 
+// 9b. a body is read no further than its cap (S5): too big is refused, without the AI being asked
+{
+  const sent = aiCalls;
+  const huge = JSON.stringify({ query: 'x', structureFacts: 'F'.repeat(200_000) });
+  const r1 = await call(null, { raw: huge });
+  check('a 200 KB body is refused as too large (413)', r1.status === 413, `got ${r1.status}`);
+  // Declared too large: refused before a byte of it is read
+  const r2 = await handler(new Request('http://127.0.0.1:3000/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3000', 'X-Real-IP': '10.9.9.1', 'Content-Length': '5000000' }, body: '{"query":"x"}' }));
+  check('...and one that declares 5 MB, before reading it', r2.status === 413, `got ${r2.status}`);
+  // Streamed with no length given: read until past the cap, then dropped
+  let pulled = 0;
+  const stream = new ReadableStream({ pull(c) { pulled++; if (pulled > 400) { c.close(); return; } c.enqueue(new TextEncoder().encode('x'.repeat(1024))); } });
+  const r3 = await handler(new Request('http://127.0.0.1:3000/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:3000', 'X-Real-IP': '10.9.9.2' }, body: stream, duplex: 'half' }));
+  check('...and one streamed with no length, read only a little past the cap', r3.status === 413 && pulled < 80, `got ${r3.status}, ${pulled} KB pulled of 400`);
+  check('...none of them reached the AI', aiCalls === sent, `${aiCalls - sent} calls`);
+  const ok = await call({ query: 'what is this?' });
+  check('a normal question still goes through', ok.status === 200, `got ${ok.status}`);
+}
+
 // 10. "more of the tour": the AI is shown the tour so far (it sees no history) and asked for new steps
 const SO_FAR = [
   { text: 'The whole hexamer.', focus: [] },
@@ -142,8 +164,8 @@ await call({ query: 'x', currentContext: context });
 check('...no tour so far, no such lines', !/has watched this tour/.test(userPrompt()));
 await call({ query: 'x', currentContext: context, tourSoFar: 'not a list' });
 check('...a tour so far that is not a list is left out', !/has watched this tour/.test(userPrompt()));
-const LONG = Array.from({ length: 30 }, (_, i) => ({ text: `Step number ${i + 1}. ${'Words '.repeat(60)}`, focus: [{ chain: 'A', resi: [i + 1], label: 'x'.repeat(200), category: 'other' }] }));
-await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), title: 'T'.repeat(10000), highlights: hugeHighlights }, structureFacts: 'F'.repeat(100000), tourSoFar: LONG });
+const LONG = Array.from({ length: 30 }, (_, i) => ({ text: `Step number ${i + 1}. ${'Words '.repeat(60)}`, focus: [{ chain: 'A', resi: [i + 1], label: 'x'.repeat(40), category: 'other' }] }));
+await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), title: 'T'.repeat(4000), highlights: hugeHighlights }, structureFacts: 'F'.repeat(10000), tourSoFar: LONG });
 const withTour = userPrompt();
 const tourBlock = withTour.slice(withTour.indexOf('asks for more of it:\n') + 'asks for more of it:\n'.length, withTour.indexOf('\nWrite a "tour" of 3-5 NEW'));
 check('...capped at 1400 characters, the newest steps kept', tourBlock.length <= 1400 && /Step number 30\./.test(tourBlock) && !/Step number 1\./.test(tourBlock), `${tourBlock.length} chars`);

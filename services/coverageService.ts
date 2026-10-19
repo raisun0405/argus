@@ -1,4 +1,4 @@
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 import { fetchSiftsMapping, fetchUniProtSequence, loadUniProtResidueMap, variantKey } from './variantService';
 import type { StructureModel } from './structureModel';
 
@@ -70,7 +70,7 @@ export function rangesText(ranges: Range[], max = 6): string {
 /** A share in whole percent that never rounds a partial coverage up to 100%. */
 export const percent = (part: number, whole: number) => (part >= whole ? 100 : Math.floor((100 * part) / whole));
 
-const entryCache = new Map<string, Promise<EntryCoverage[]>>();
+const entryCache = new BoundedMap<string, Promise<EntryCoverage[]>>(20);
 
 /** For each UniProt protein in an experimental entry, the part of it the file holds (most residues first). */
 export const entryCoverage = (pdbId: string, model: StructureModel): Promise<EntryCoverage[]> =>
@@ -108,7 +108,7 @@ export const entryCoverage = (pdbId: string, model: StructureModel): Promise<Ent
     return found.filter((c): c is EntryCoverage => c !== null).sort((a, b) => b.present - a.present);
   });
 
-const experimentalCache = new Map<string, Promise<ExperimentalCoverage | null>>();
+const experimentalCache = new BoundedMap<string, Promise<ExperimentalCoverage | null>>(20);
 
 /** The residues of a protein resolved in any PDB entry of it (PDBe-KB); null when PDBe has nothing for it. */
 export const experimentalCoverage = (accession: string): Promise<ExperimentalCoverage | null> => {
@@ -140,7 +140,7 @@ export const experimentalCoverage = (accession: string): Promise<ExperimentalCov
 
 // --- For the chat ---
 
-const known = new Map<string, ExperimentalCoverage>(); // AlphaFold model ID -> what experiments resolve of its protein
+const known = new BoundedMap<string, ExperimentalCoverage>(20); // AlphaFold model ID -> what experiments resolve of its protein
 
 /** What experiments resolve of the protein of an AlphaFold model on screen, for the facts sent with a question. */
 export const rememberExperimentalCoverage = (structureId: string, coverage: ExperimentalCoverage | null) => {

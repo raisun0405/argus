@@ -1,4 +1,4 @@
-import { fetchOrNull, memoize } from './http';
+import { BoundedMap, fetchOrNull, memoize } from './http';
 
 // --- ALPHAFOLD DB ---
 // Predicted models for (almost) every UniProt protein. Models use chain "A" and
@@ -34,7 +34,7 @@ export interface AlphaFoldModel {
   paeUrl?: string; // The model's confidence map (predicted aligned error), services/paeService.ts
 }
 
-const modelCache = new Map<string, Promise<AlphaFoldModel | null>>();
+const modelCache = new BoundedMap<string, Promise<AlphaFoldModel | null>>(50);
 // Guessed while the API was failing: no metadata, and some models use other file names
 const fallbackModels = new WeakSet<AlphaFoldModel>();
 
@@ -82,7 +82,7 @@ export const resolveAlphaFoldModel = (accession: string): Promise<AlphaFoldModel
   return pending;
 };
 
-const structureCache = new Map<string, Promise<{ model: AlphaFoldModel; pdb: string } | null>>();
+const structureCache = new BoundedMap<string, Promise<{ model: AlphaFoldModel; pdb: string } | null>>(6); // Whole model files
 
 /** Model metadata plus its PDB-format coordinates; null when no model exists. */
 export const fetchAlphaFoldStructure = (accession: string) => {
@@ -115,12 +115,27 @@ export const PLDDT_BANDS = [
   { min: -Infinity, color: '#FF7D45', label: 'Very low', range: '< 50' },
 ] as const;
 
-/** pLDDT on a 0-100 scale, whether the file stores 0-100 (AlphaFold) or 0-1 (ESMFold). */
-export const plddtValue = (value: number) => (value <= 1 ? value * 100 : value);
+/**
+ * Whether a model file keeps pLDDT as a fraction (ESMFold: 0-1) rather than out of 100 (AlphaFold).
+ * Decided for the whole file: one value can't tell, and judged one by one, a residue AlphaFold scored
+ * below 1 out of 100 (the least certain of all) was taken for a fraction and coloured "very high".
+ */
+export const plddtIsFraction = (pdb: string): boolean => {
+  let max = -Infinity;
+  for (const line of pdb.split('\n')) {
+    if (!line.startsWith('ATOM')) continue;
+    const b = parseFloat(line.slice(60, 66));
+    if (b > max) max = b;
+  }
+  return max > -Infinity && max <= 1;
+};
 
-export const plddtBand = (value: number) => {
-  const v = plddtValue(value);
+/** pLDDT on a 0-100 scale; fraction: the file stores 0-1 (plddtIsFraction), guessed from the value when not given. */
+export const plddtValue = (value: number, fraction = value <= 1) => (fraction ? value * 100 : value);
+
+export const plddtBand = (value: number, fraction?: boolean) => {
+  const v = plddtValue(value, fraction);
   return PLDDT_BANDS.find(b => v > b.min) ?? PLDDT_BANDS[PLDDT_BANDS.length - 1];
 };
 
-export const plddtColor = (value: number) => plddtBand(value).color;
+export const plddtColor = (value: number, fraction?: boolean) => plddtBand(value, fraction).color;
