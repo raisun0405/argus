@@ -46,15 +46,21 @@ function tooMany(key: string, windowMs: number, max: number): boolean {
 const json = (body: unknown, status = 200, cache = 'no-store') =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': cache } });
 
+// A key pasted into a dashboard can carry a hidden line break or space, which breaks every signature
+const setting = (name: string) => (process.env[name] ?? '').trim();
+
 /** The bucket, or null when its keys aren't set. */
 function bucket(): { client: AwsClient; base: string } | null {
-  const { R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY } = process.env;
-  if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) return null;
+  const [account, keyId, secret] = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'].map(setting);
+  if (!account || !keyId || !secret) return null;
   return {
-    client: new AwsClient({ accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY, service: 's3', region: 'auto' }),
-    base: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.R2_BUCKET || 'argus-saved'}`,
+    client: new AwsClient({ accessKeyId: keyId, secretAccessKey: secret, service: 's3', region: 'auto' }),
+    base: `https://${account}.r2.cloudflarestorage.com/${setting('R2_BUCKET') || 'argus-saved'}`,
   };
 }
+
+/** For a refused request: the keys' lengths as set (never their content), as R2 keys are 32 and 64 characters. */
+const keyLengths = () => `key lengths as set: ${(process.env.R2_ACCESS_KEY_ID ?? '').length}/${(process.env.R2_SECRET_ACCESS_KEY ?? '').length}`;
 
 const objectKey = (id: string) => `v1/${id}.json.gz`;
 
@@ -105,7 +111,7 @@ export default async function handler(req: Request): Promise<Response> {
       const res = await store.client.fetch(`${store.base}/${objectKey(id)}`, { signal: controller.signal });
       if (res.status === 404) return json({ error: 'Nothing is saved under this link' }, 404);
       if (!res.ok || !res.body) {
-        console.error(`[saved] R2 ${res.status} reading ${id}`);
+        console.error(`[saved] R2 ${res.status} reading ${id} (${keyLengths()})`);
         return json({ error: 'The saved result could not be read' }, 502);
       }
       return new Response(await gunzip(res.body), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': FOREVER } });
@@ -126,7 +132,7 @@ export default async function handler(req: Request): Promise<Response> {
       signal: controller.signal,
     });
     if (!res.ok) {
-      console.error(`[saved] R2 ${res.status} saving: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+      console.error(`[saved] R2 ${res.status} saving (${keyLengths()}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
       return json({ error: 'The result could not be saved' }, 502);
     }
     return json({ id }, 201);

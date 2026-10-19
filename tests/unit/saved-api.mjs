@@ -86,6 +86,16 @@ check('something that is no ID: 400 without asking the bucket', await (async () 
 check('another website\'s Origin: 403', (await get(id, { Origin: 'https://evil.example' })).status === 403);
 check('a cross-site fetch without an Origin: 403', (await get(id, { 'Sec-Fetch-Site': 'cross-site' })).status === 403);
 
+console.log('\n[keys pasted with hidden whitespace]');
+process.env.R2_ACCESS_KEY_ID = ' AKIDTEST\r\n';
+process.env.R2_SECRET_ACCESS_KEY = 'not-a-real-secret\r\n';
+process.env.R2_ACCOUNT_ID = 'acct123 ';
+res = await post(VIEW);
+check('a line break or space around a key is dropped before signing', res.status === 201 && /^AWS4-HMAC-SHA256 Credential=AKIDTEST\//.test(r2Calls.at(-1)?.auth ?? '') && r2Calls.at(-1)?.url.startsWith(R2), `${res.status} ${r2Calls.at(-1)?.url}`);
+process.env.R2_ACCESS_KEY_ID = 'AKIDTEST';
+process.env.R2_SECRET_ACCESS_KEY = 'not-a-real-secret';
+process.env.R2_ACCOUNT_ID = 'acct123';
+
 console.log('\n[the bucket failing]');
 r2Fails = 'status';
 res = await post(VIEW);
