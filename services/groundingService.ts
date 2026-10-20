@@ -14,6 +14,7 @@ import { complement, experimentalFactsLine, percent, rangesOf, rangesText } from
 import { qualityFactsLine } from './qualityService';
 import { firstSentence, identityVerdict } from './identityCheck';
 import { fetchPdbFile } from './structureFiles';
+import { cutText } from './textCut';
 
 // --- STRUCTURE FACTS (grounding for /api/analyze) ---
 // The LLM recalls residue numbers poorly, and PDB files often number residues
@@ -425,7 +426,8 @@ const ligandLine = (ligands: Ligand[]): Line => {
 };
 
 const fitToBudget = (lines: Line[]): string | null => {
-  const kept = lines.map(l => ({ ...l, text: l.text.length > MAX_LINE_CHARS ? `${l.text.slice(0, MAX_LINE_CHARS - 1)}…` : l.text }));
+  // Cut between words, never inside a residue number
+  const kept = lines.map(l => ({ ...l, text: cutText(l.text, MAX_LINE_CHARS) }));
   let total = kept.reduce((n, l) => n + l.text.length + 1, 0);
   for (let priority = 4; priority >= 1 && total > MAX_FACTS_CHARS; priority--) {
     for (let i = kept.length - 1; i >= 0 && total > MAX_FACTS_CHARS; i--) {
@@ -434,7 +436,7 @@ const fitToBudget = (lines: Line[]): string | null => {
       kept.splice(i, 1);
     }
   }
-  const text = kept.map(l => l.text).join('\n').slice(0, MAX_FACTS_CHARS).trim();
+  const text = cutText(kept.map(l => l.text).join('\n'), MAX_FACTS_CHARS).trim();
   return text || null;
 };
 
@@ -607,28 +609,40 @@ const alphaFoldFactLines = async (accession: string): Promise<FactLines> => {
 
 const ONE_LETTER: Record<string, string> = Object.fromEntries(Object.entries(THREE).map(([one, three]) => [three.toLowerCase(), one]));
 const MAX_NAMED = 6;
+const MAX_HINT_CHARS = 500;
 
-/** "T790M", "R175H", "E6V", "Thr790", "His 87" -> [{ aa: 'T', position: 790, text: 'T790' }, ...] */
-const namedResidues = (query: string) => {
+/**
+ * "T790M", "R175H", "E6V", "Thr790", "His 87", "His-57" -> [{ aa: 'T', position: 790, text: 'T790' }, ...].
+ * A one-letter name needs what a mutation adds after the number (T790M, Q61fs): bare, it is more often
+ * a name of something else ("T7 RNA polymerase", "the S1 pocket", the K562 cell line). A hyphen before
+ * a single digit ("Ser-1 from the tag") may be negative numbering, so it is left alone too.
+ */
+export const namedResidues = (query: string) => {
   const found = new Map<string, { aa: string; position: number; text: string }>();
   const add = (aa: string, position: number, text: string) => {
     if (position > 0 && position < 100000 && !found.has(`${aa}${position}`)) found.set(`${aa}${position}`, { aa, position, text });
   };
-  for (const m of query.matchAll(/\b([ACDEFGHIKLMNPQRSTVWY])(\d{1,5})(?:[ACDEFGHIKLMNPQRSTVWY*]|del|fs|ins)?\b/g)) add(m[1], Number(m[2]), `${m[1]}${m[2]}`);
-  for (const m of query.matchAll(/\b(Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)[\s-]?(\d{1,5})\b/gi)) {
-    add(ONE_LETTER[m[1].toLowerCase()], Number(m[2]), `${m[1]}${m[2]}`);
+  for (const m of query.matchAll(/\b([ACDEFGHIKLMNPQRSTVWY])(\d{1,5})(?:[ACDEFGHIKLMNPQRSTVWY]|del|dup|fs|ins)\b/g)) add(m[1], Number(m[2]), `${m[1]}${m[2]}`);
+  for (const m of query.matchAll(/\b(Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)(?:\s?(\d{1,5})|-(\d{2,5}))\b/gi)) {
+    const position = m[2] ?? m[3];
+    add(ONE_LETTER[m[1].toLowerCase()], Number(position), `${m[1]}${position}`);
   }
   return [...found.values()].slice(0, MAX_NAMED);
 };
 
 /**
  * One line per residue named in the question that matches the structure: in UniProt numbering
- * (the residue type agrees with the UniProt sequence) or already in the file's numbering.
+ * (the residue type agrees with the UniProt sequence) or already in the file's numbering. Every
+ * protein of the structure is tried, and every reading that fits is given: in a complex the residue
+ * may be any subunit's. "Not in this structure" only when none has it. Whole notes only, within
+ * `maxChars`, so a residue number is never cut short.
  */
-const questionHintLine = (proteins: HintProtein[], query: string): string | null => {
+export const questionHintLine = (proteins: HintProtein[], query: string, maxChars = MAX_HINT_CHARS): string | null => {
   const notes: string[] = [];
   const label = (r: Located) => `${r.chain}:${r.name}${r.resi}`;
   for (const { aa, position, text } of namedResidues(query)) {
+    const readings: string[] = [];
+    let unobserved = false; // A protein has that residue there, but the file doesn't hold it
     for (const protein of proteins) {
       const fitsUniProt = protein.sequence[position - 1] === aa;
       const viaUniProt = fitsUniProt ? protein.locate(position) : null;
@@ -636,20 +650,29 @@ const questionHintLine = (proteins: HintProtein[], query: string): string | null
       if (viaUniProt && inFile && label(viaUniProt) !== label(inFile)) {
         // Both readings give the right residue type (trypsin's Ser195 in chymotrypsin numbering
         // is also a Ser in UniProt numbering): say so and let the context decide
-        notes.push(`${text} fits two numberings: ${label(inFile)} if meant in this file's numbering, ${label(viaUniProt)} if meant in UniProt numbering`);
+        readings.push(`${label(inFile)} if meant in this file's numbering, ${label(viaUniProt)} if meant in UniProt numbering`);
       } else if (viaUniProt) {
-        notes.push(`${text} (UniProt numbering) = ${label(viaUniProt)} in this file`);
+        readings.push(`${label(viaUniProt)} in this file (UniProt numbering)`);
       } else if (inFile) {
-        notes.push(`${text} is already this file's numbering (${label(inFile)})`);
+        readings.push(`${label(inFile)} (already this file's numbering)`);
       } else if (fitsUniProt) {
-        notes.push(`${text} (UniProt numbering) is not in this structure`);
-      } else {
-        continue; // Not this protein: try the next one
+        unobserved = true;
       }
-      break;
     }
+    if (readings.length) notes.push(`${text} = ${readings.join('; or ')}`);
+    else if (unobserved) notes.push(`${text} (UniProt numbering) is not in this structure`);
   }
-  return notes.length ? `Residues named in the question (checked against UniProt): ${notes.join('; ')}` : null;
+  if (!notes.length) return null;
+  const head = 'Residues named in the question (checked against UniProt): ';
+  let line = head;
+  for (let i = 0; i < notes.length; i++) {
+    const rest = notes.length - i - 1;
+    const next = `${i ? '; ' : ''}${notes[i]}`;
+    const more = rest ? `; and ${rest} more` : '';
+    if (line.length + next.length + more.length > maxChars && i > 0) return `${line}; and ${notes.length - i} more`;
+    line += next;
+  }
+  return cutText(line, maxChars); // Only a single very long note can still be over: cut between words
 };
 
 const hintCache = new Map<string, HintProtein[]>(); // Filled alongside factsCache
@@ -737,7 +760,7 @@ export const getStructureFacts = async (structureId: string | undefined, query =
     wantsInteractions ? interactionLine(structureId, maxWaitMs) : Promise.resolve(null),
   ]);
   const key = factsKey(structureId);
-  const hint = facts && key && query ? questionHintLine(hintCache.get(key) ?? [], query)?.slice(0, 500) : null;
+  const hint = facts && key && query ? questionHintLine(hintCache.get(key) ?? [], query) : null;
   const lines = [cofoldFactsLine(structureId), overlayFactsLine(structureId), facts, hint, interactions, qualityFactsLine(structureId), paeFactsLine(structureId), experimentalFactsLine(structureId), alphaFillFactsLine(structureId), pocketFactsLine(structureId), partnerFactsLine(structureId)].filter(Boolean);
   return lines.length ? lines.join('\n') : null;
 };
@@ -791,11 +814,12 @@ export interface AnswerInspection {
   missing: number; // Places it marks that the file doesn't have
   wrong: number; // Places the file has, but not as labelled (another residue type, a residue for a ligand)
   unchecked: number; // Ligand marks that couldn't be checked: the ligand list didn't load
-  named: number; // Amino acids named in the answer's text that are that amino acid at that number
-  misnamed: number; // ...and those that are not
+  named: number; // Amino acids named in the answer's text that are that amino acid in the residue meant
+  loose: number; // ...that fit only another reading: one chain of several (the answer doesn't say which), the protein's own numbering, or an insertion code dropped
+  misnamed: number; // ...and those that fit no reading at all
 }
 
-const NO_MARKS = { residues: 0, ligands: 0, missing: 0, wrong: 0, unchecked: 0, named: 0, misnamed: 0 };
+const NO_MARKS = { residues: 0, ligands: 0, missing: 0, wrong: 0, unchecked: 0, named: 0, loose: 0, misnamed: 0 };
 // Each place is counted once; when two labels mark the same place, the worse outcome counts
 const OUTCOME_RANK = { residue: 0, ligand: 0, unchecked: 1, missing: 2, wrong: 3 } as const;
 type Outcome = keyof typeof OUTCOME_RANK;
@@ -929,6 +953,7 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   // confirmed, but not called wrong
   const unsure = degraded.has(key);
   let named = 0;
+  let loose = 0;
   let misnamed = 0;
   for (const [place, types] of labelledTypes(text)) {
     const resi = parseInt(place, 10);
@@ -946,22 +971,26 @@ export const inspectAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
       const chains = [...here.keys()].filter(c => marked.has(`${c}|${resi}`));
       inFile = new Set((chains.length ? chains : [...here.keys()]).map(c => here.get(c) as string));
     } else inFile = insertedAt.get(resi) as Set<string>;
-    // Also right: the proteins' own residue at that number (UniProt numbering), and the residue at that
-    // number with an insertion code or without one (a code left out or added: "Pro52" for Pro52A)
+    // Not wrong either, so never sent back to the AI: the proteins' own residue at that number (UniProt
+    // numbering), and the residue at that number with an insertion code or without one (a code left out
+    // or added: "Pro52" for Pro52A). But only the residue meant counts as confirmed: when the answer
+    // doesn't mark the number, every chain holding it (in 4HHB the alpha and beta chains often differ
+    // at a number, and a name that fits only one of them may be about the other)
     const allowed = new Set([
       ...inFile,
       ...sequences.map(s => THREE[s[resi - 1]]?.toUpperCase()).filter(Boolean) as string[],
       ...(insertedAt.get(resi) ?? []),
       ...(inserted && here ? here.values() : []),
     ]);
-    if ([...types].some(t => allowed.has(t))) named++;
+    if ([...inFile].every(t => types.has(t))) named++;
+    else if ([...types].some(t => allowed.has(t))) loose++;
     else if (!unsure) {
       misnamed++;
       problems.add(`the answer's text says ${[...types].map(titleCase).join('/')}${place}, but residue ${chainOnly ? `${chainOnly}:${resi}` : place} is ${[...inFile].map(titleCase).join('/')} in this file`);
     }
   }
 
-  const counts = { ...NO_MARKS, named, misnamed };
+  const counts = { ...NO_MARKS, named, loose, misnamed };
   for (const outcome of places.values()) counts[outcome === 'residue' ? 'residues' : outcome === 'ligand' ? 'ligands' : outcome]++;
   // The model is shown the first few; answers are compared by all of them (two answers with 20 and 10
   // faults both list 8)
@@ -1211,26 +1240,32 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     return ids;
   };
 
-  // Evidence that the answer used UniProt numbering: a residue named in a label that matches
-  // UniProt's residue at that number but not the file's. Only then are numbers without a name
-  // (and measurement ends) read as UniProt numbers too.
+  // Whether the whole answer uses UniProt numbering, from the residues its labels name: each that
+  // matches UniProt's residue at that number but not the file's says yes, each that matches the file's
+  // says no. Only when the yeses have it and nothing says no are numbers without a name (and
+  // measurement ends) read as UniProt numbers too: in an answer that mixes the two, a number missing
+  // from the file may just be a residue the file doesn't resolve, and moving it would be a renumbering
+  // that never happened. Named residues are converted either way, each by its own type.
   const allHighlights = [
     ...analysis.highlights,
     ...(analysis.tour ?? []).flatMap(step => step.focus),
     ...(analysis.quiz?.answerHighlights ?? []),
   ];
-  const usesUniProtNumbering = allHighlights.some(h =>
-    [...labelledTypes(h.label ?? '')].some(([place, types]) => {
+  let uniprotVotes = 0;
+  let fileVotes = 0;
+  for (const h of allHighlights) {
+    for (const [place, types] of labelledTypes(h.label ?? '')) {
       const resi = Number(place);
-      if (!Number.isInteger(resi)) return false; // An insertion code ("52A"): not a UniProt number
+      if (!Number.isInteger(resi)) continue; // An insertion code ("52A"): not a UniProt number
       const inFile = index.residues.get(`${h.chain}|${resi}`);
-      if (inFile && types.has(PARENT[inFile] ?? inFile)) return false;
-      return proteins.some(p => {
+      if (inFile && types.has(PARENT[inFile] ?? inFile)) fileVotes++;
+      else if (proteins.some(p => {
         const uniprotType = THREE[p.sequence[resi - 1]]?.toUpperCase();
         return uniprotType !== undefined && types.has(uniprotType) && p.locate(resi) !== null;
-      });
-    })
-  );
+      })) uniprotVotes++;
+    }
+  }
+  const usesUniProtNumbering = uniprotVotes > 0 && fileVotes === 0;
 
   const fixHighlight = (h: Highlight): Highlight[] => {
     const ligandLike = h.category === 'ligand' || h.category === 'substrate' || h.category === 'cofactor' || h.category === 'metal';
@@ -1252,9 +1287,14 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
         const misplaced = !ligand && (!residue || namesLigand);
         if (!misplaced || !index.ligands) { keep(h.chain, resi); continue; }
         const targets = ligandInstances(ligandFor(h));
-        const sameChain = targets.filter(t => t.chain === h.chain);
         if (targets.length === 0) { keep(h.chain, resi); continue; }
-        (sameChain.length > 0 ? sameChain : targets).forEach(t => keep(t.chain, t.resi));
+        // One mark moves onto one copy, as counted: in its own chain when it has one, at the number it
+        // gave when a copy is there, else the closest (marking "the heme" at a chain that has none
+        // would otherwise light up every heme in the file, each with the same label)
+        const sameChain = targets.filter(t => t.chain === h.chain);
+        const candidates = sameChain.length > 0 ? sameChain : targets;
+        const onto = candidates.reduce((best, t) => (Math.abs(t.resi - resi) < Math.abs(best.resi - resi) ? t : best));
+        keep(onto.chain, onto.resi);
         changed = true;
         moved.add(at);
         continue;
@@ -1286,17 +1326,31 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
     return [...byChain].map(([chain, resi]) => ({ ...h, chain, resi }));
   };
 
-  const fixAtom = <T extends { chain: string; resi: number }>(end: T): T => {
+  // A measurement end read as a UniProt number, like a highlight's residue: when the file doesn't have
+  // it, or has another amino acid there than the measurement's label names ("Met793 to Lys745" on a
+  // Trp793). Converted only through the protein that owns the end's chain (another protein's numbering
+  // says nothing about it), onto a residue of the type UniProt has at that number, and of the type the
+  // label names there, if it names one
+  const fixAtom = <T extends { chain: string; resi: number }>(end: T, label = ''): T => {
     const at = `${end.chain}|${end.resi}`;
+    const residue = index.residues.get(at);
+    const expected = labelledTypes(label).get(String(end.resi));
+    const isNamed = expected !== undefined && expected.size > 0;
+    if (residue && (!isNamed || expected.has(PARENT[residue] ?? residue))) return end; // There, as named
     // Without the ligand list, an end that isn't a residue may be a ligand, so it stays where it is
-    if (index.residues.has(at) || index.ligands?.has(at) || !index.ligands || !usesUniProtNumbering) return end;
+    if (!residue && (index.ligands?.has(at) || !index.ligands)) return end;
+    if (!isNamed && !usesUniProtNumbering) return end;
     for (const protein of proteins) {
+      if (!protein.residues.some(r => r.chain === end.chain)) continue;
+      const uniprotType = THREE[protein.sequence[end.resi - 1]]?.toUpperCase();
+      if (!uniprotType || (expected && expected.size > 0 && !expected.has(uniprotType))) continue;
       const located = protein.locate(end.resi);
-      if (located && index.residues.has(`${end.chain}|${located.resi}`)) {
-        changed = true;
-        renumbered.add(at);
-        return { ...end, resi: located.resi };
-      }
+      if (!located) continue;
+      const targetType = index.residues.get(`${end.chain}|${located.resi}`);
+      if (!targetType || (PARENT[targetType] ?? targetType) !== uniprotType) continue;
+      changed = true;
+      renumbered.add(at);
+      return { ...end, resi: located.resi };
     }
     return end;
   };
@@ -1304,7 +1358,7 @@ export const correctAnswer = async (analysis: ProteinAnalysis, maxWaitMs = 6000)
   const corrected: ProteinAnalysis = {
     ...analysis,
     highlights: analysis.highlights.flatMap(fixHighlight),
-    measurements: (analysis.measurements ?? []).map(m => ({ ...m, start: fixAtom(m.start), end: fixAtom(m.end) })),
+    measurements: (analysis.measurements ?? []).map(m => ({ ...m, start: fixAtom(m.start, m.label), end: fixAtom(m.end, m.label) })),
     ...(analysis.tour ? { tour: analysis.tour.map(step => ({ ...step, focus: step.focus.flatMap(fixHighlight) })) } : {}),
     ...(analysis.quiz
       ? { quiz: { ...analysis.quiz, ...(analysis.quiz.answerHighlights ? { answerHighlights: analysis.quiz.answerHighlights.flatMap(fixHighlight) } : {}) } }

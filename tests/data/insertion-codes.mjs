@@ -8,13 +8,15 @@ const g = await import(`${ROOT_URL}services/groundingService.ts`);
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''}`); if (!ok) failures++; };
 const a = (pdbId, summary, highlights = []) => ({ pdbId, title: 'Test', summary, highlights });
-const n = i => i && `named ${i.named}, misnamed ${i.misnamed}, wrong ${i.wrong}, residues ${i.residues}, problems ${i.problems.length}`;
+const n = i => i && `named ${i.named}, loose ${i.loose}, misnamed ${i.misnamed}, wrong ${i.wrong}, residues ${i.residues}, problems ${i.problems.length}`;
 
 console.log('[a right answer about an antibody]');
 let i = await g.inspectAnswer(a('12E8', 'Pro52A and Phe100C of the heavy chain line the antigen pocket.'), 25000);
 check('Pro52A and Phe100C: both named right, no problem raised', i && i.named === 2 && i.misnamed === 0 && i.problems.length === 0, n(i));
 i = await g.inspectAnswer(a('12E8', 'Asp52 and Arg100 sit beside them.'), 25000);
-check('...and the residues without a code at the same numbers too', i && i.named === 2 && i.misnamed === 0, n(i));
+// They are the heavy chain's, and the light chain has other residues at those numbers: unmarked, they fit
+// without being confirmed (P8)
+check('...and the residues without a code at the same numbers too: not wrong, fitting the heavy chain', i && i.loose === 2 && i.misnamed === 0, n(i));
 i = await g.inspectAnswer(a('12E8', 'Pro52 sits at the tip of the loop.'), 25000);
 check('a code left out ("Pro52" for Pro52A) is not called wrong', i && i.misnamed === 0, n(i));
 

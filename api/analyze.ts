@@ -9,6 +9,7 @@
 
 import { normalizeAnalysis, normalizeHighlights } from '../services/normalizeAnalysis';
 import { readJsonBody } from '../services/requestBody';
+import { cutText } from '../services/textCut';
 
 export const config = { runtime: 'edge' };
 
@@ -184,16 +185,30 @@ const TOUR_SO_FAR_MAX_CHARS = 1400;
 function tourSoFarLines(value: unknown): string {
   if (!Array.isArray(value)) return '';
   const steps = value.slice(-TOUR_SO_FAR_MAX_STEPS).flatMap((step: any) => {
-    const said = typeof step?.text === 'string' ? step.text.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+    // Cut between words, never inside a residue number ("His8…" would be another residue)
+    const said = typeof step?.text === 'string' ? cutText(step.text.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim(), 160) : '';
     if (!said) return [];
     const where = normalizeHighlights(step?.focus).slice(0, 4)
-      .map(h => `${h.chain}:${h.resi.slice(0, 6).join(',')}${h.label ? ` ${h.label.slice(0, 30)}` : ''}`)
+      .map(h => `${h.chain}:${h.resi.slice(0, 6).join(',')}${h.label ? ` ${cutText(h.label, 30)}` : ''}`)
       .join('; ');
     return [{ where: where || 'the whole structure', said }];
   });
   let lines = steps.map((s, i) => `${i + 1}. [${s.where}] ${s.said}`);
   while (lines.length > 1 && lines.join('\n').length > TOUR_SO_FAR_MAX_CHARS) lines = lines.slice(1);
-  return lines.join('\n').slice(0, TOUR_SO_FAR_MAX_CHARS);
+  return cutText(lines.join('\n'), TOUR_SO_FAR_MAX_CHARS);
+}
+
+/**
+ * The current highlights as JSON in at most `max` characters: whole highlights, the last ones left out
+ * when there are too many (a cut inside the JSON would hand the model a residue number cut short).
+ */
+function highlightsJson(highlights: ReturnType<typeof normalizeHighlights>, max: number): string {
+  let kept = highlights;
+  let json = JSON.stringify(kept);
+  while (json.length > max && kept.length > 1) json = JSON.stringify((kept = kept.slice(0, -1)));
+  // One highlight on its own too long: the first of its residues, as many as fit
+  while (json.length > max && kept.length === 1 && kept[0].resi.length > 1) json = JSON.stringify((kept = [{ ...kept[0], resi: kept[0].resi.slice(0, -1) }]));
+  return json.length > max ? '[]' : json;
 }
 
 // --- RATE LIMIT ---
@@ -290,11 +305,11 @@ export default async function handler(req: Request): Promise<Response> {
   // ligand interactions computed from the file for questions about binding, the
   // structure laid over this one (Overlay) when there is one, and the Boltz-2
   // prediction when a co-folded complex is on screen.
-  // Most important lines come first; anything past 2800 characters is cut, and
-  // control characters dropped.
+  // Most important lines come first; anything past 2800 characters is cut (whole lines, or between
+  // words: never inside a residue number), and control characters dropped.
   const facts =
     ctx && typeof body.structureFacts === 'string'
-      ? body.structureFacts.replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '').trim().slice(0, 2800)
+      ? cutText(body.structureFacts.replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '').trim(), 2800)
       : '';
 
   const factsPrompt = facts
@@ -312,7 +327,7 @@ ${facts}
     ? `CURRENT CONTEXT (what the user is looking at):
 - Currently Loaded PDB: ${ctx.pdbId ?? '(unknown)'}
 - Title: ${ctx.title ?? '(unknown)'}
-- Current Highlights: ${JSON.stringify(ctx.highlights).slice(0, 2500)}
+- Current Highlights: ${highlightsJson(ctx.highlights, 2500)}
 ${ctx.selection ? `- Selected in the 3D view: ${ctx.selection} (what "this", "these", "here" or "the selection" mean in the query: answer about these residues and mark them in highlights, with exactly these chain IDs and numbers)\n` : ''}${factsPrompt}
 INSTRUCTIONS FOR FOLLOW-UP:
 1. Focus/Zoom Mode: If the user asks about a specific site (e.g., "Where is the active site?", "Show me the heme group"), provide the specific residues in "highlights". The viewer will AUTOMATICALLY ZOOM IN and dim the rest of the protein.

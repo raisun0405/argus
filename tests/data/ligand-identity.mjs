@@ -41,5 +41,12 @@ check('"GDP" at a place that isn\'t there: moved onto the GDP at A:274', c?.move
 c = await g.correctAnswer(a('4HHB', [L('A', 999, 'Iron', 'metal')]), 25000);
 check('"Iron" at a place that isn\'t there: moved onto a heme', c?.moved === 1 && c.analysis.highlights.some(h => h.resi.includes(142)), spots(c));
 
+console.log('\n[one misplaced mark moves onto one copy (P11)]');
+// 4HHB holds four hemes, one in each chain; chain E doesn't exist
+c = await g.correctAnswer(a('4HHB', [L('E', 145, 'The heme group')]), 25000);
+check('"the heme" at a chain with none: one highlight on one heme, not all four', c?.moved === 1 && c.analysis.highlights.length === 1 && c.analysis.highlights[0].resi.length === 1, spots(c));
+c = await g.correctAnswer(a('4HHB', [L('A', 999, 'The heme group')]), 25000);
+check('...in a chain that has one: that chain\'s heme', c?.moved === 1 && spots(c) === 'A:142', spots(c));
+
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASS');
 process.exit(failures ? 1 : 0);

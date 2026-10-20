@@ -106,6 +106,16 @@ const show = c => JSON.stringify({ status: c.status, summary: c.summary, rows: c
   check('one named wrong: singular verb', c.summary === 'Checked against 4HHB: 1 of 2 amino acids it names doesn\'t match the entry', show(c));
 }
 {
+  // P8: a name true of one chain of several (unmarked), or in the protein's own numbering, isn't claimed as checked
+  const c = buildChecks('4HHB', marks({ residues: 1, named: 1, loose: 2 }), named('Hemoglobin'), {});
+  check('names that fit only loosely: their own grey row, not "that amino acid in 4HHB"', c.status === 'passed'
+    && c.rows.some(r => r.state === 'ok' && r.text === '1 amino acid named in the answer is that amino acid in 4HHB')
+    && c.rows.some(r => r.state === 'skipped' && r.text === "2 amino acids named in the answer fit 4HHB only loosely (in one chain of several, or in the protein's own numbering), so they weren't confirmed"), show(c));
+  check('...and the line counts only the confirmed one', c.summary === 'Checked against 4HHB: protein name, 1 residue, 1 amino acid', show(c));
+  const wrong = buildChecks('4HHB', marks({ residues: 1, named: 1, loose: 2, misnamed: 1, problems: ['the answer\'s text says Asp58, but residue 58 is His in this file'] }), named('Hemoglobin'), {});
+  check('...but a wrong one is counted out of every amino acid the answer names', wrong.summary === 'Checked against 4HHB: 1 of 4 amino acids it names doesn\'t match the entry', show(wrong));
+}
+{
   // The second answer replaced a wrong-protein first one, but its parts couldn't be checked: no "Fixed"
   const c = buildChecks('2ITY', null, named('An entry title'), { retry: { entry: '1M17', title: 'Insulin', missing: false, holds: 'EGFR kinase', problems: 0, outcome: 'kept' } });
   check('kept but unchecked: no "Fixed, then checked", only what was checked', c.status === 'passed' && c.summary === 'Checked against 2ITY: protein name', show(c));

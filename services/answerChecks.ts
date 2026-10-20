@@ -91,9 +91,12 @@ export function buildChecks(structure: string, inspection: AnswerInspection | nu
   if (!inspection) rows.push({ state: 'skipped', text: `Marked parts not checked: ${structure}'s residue list didn't load in time` });
   else {
     const { residues, ligands, missing, wrong, unchecked, named, misnamed, problems } = inspection;
+    const loose = inspection.loose ?? 0;
     if (residues) rows.push({ state: 'ok', text: `${count(residues, 'marked residue')} ${residues === 1 ? 'is' : 'are'} in ${where}` });
     if (ligands) rows.push({ state: 'ok', text: `${count(ligands, 'marked ligand')} ${ligands === 1 ? 'is' : 'are'} in ${where}` });
     if (named) rows.push({ state: 'ok', text: `${count(named, 'amino acid')} named in the answer ${named === 1 ? 'is' : 'are'} that amino acid in ${where}` });
+    // Not wrong, but not confirmed either: true of one chain of several, or in the protein's own numbering
+    if (loose) rows.push({ state: 'skipped', text: `${count(loose, 'amino acid')} named in the answer ${loose === 1 ? 'fits' : 'fit'} ${where} only loosely (in one chain of several, or in the protein's own numbering), so ${loose === 1 ? "it wasn't" : "they weren't"} confirmed` });
     if (unchecked) rows.push({ state: 'skipped', text: `${count(unchecked, 'marked part')} not checked: ${structure}'s ligand list didn't load` });
     problems.forEach(p => rows.push({ state: 'issue', text: capitalised(p) }));
     const unlisted = missing + wrong + misnamed - problems.length;
@@ -132,7 +135,7 @@ export function buildChecks(structure: string, inspection: AnswerInspection | nu
     const parts = off + inspection.residues + inspection.ligands + inspection.unchecked;
     const clauses = [
       off > 0 ? `${off} of ${count(parts, 'marked part')}` : '',
-      misnamed > 0 ? `${misnamed} of ${count(misnamed + inspection.named, 'amino acid')} it names` : '',
+      misnamed > 0 ? `${misnamed} of ${count(misnamed + inspection.named + (inspection.loose ?? 0), 'amino acid')} it names` : '',
     ].filter(Boolean);
     summary = `${head}: ${clauses.join(' and ')} ${off + misnamed === 1 ? "doesn't" : "don't"} match the ${model ? 'model' : 'entry'}`;
   } else {

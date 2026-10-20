@@ -7,7 +7,7 @@ const g = await import(`${ROOT_URL}services/groundingService.ts`);
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''}`); if (!ok) failures++; };
 const a = (pdbId, summary, highlights = [], extra = {}) => ({ pdbId, title: 'Test', summary, highlights, ...extra });
-const n = i => i && `named ${i.named}, misnamed ${i.misnamed}, residues ${i.residues}, problems ${i.problems.length}`;
+const n = i => i && `named ${i.named}, loose ${i.loose}, misnamed ${i.misnamed}, residues ${i.residues}, problems ${i.problems.length}`;
 
 console.log('[the case from the screenshot: 3 of 5 named amino acids are wrong]');
 let i = await g.inspectAnswer(a('4LDB',
@@ -21,11 +21,30 @@ check('each wrong one is named for the retry', i && [124, 135, 141].every(r => i
 console.log('\n[right answers stay quiet]');
 i = await g.inspectAnswer(a('4HHB', 'The proximal His87 on the alpha chain and His92 on beta anchor the iron; the distal His58 sits above it.',
   [{ chain: 'A', resi: [87], label: 'Proximal His', category: 'active_site' }]), 25000);
-check('4HHB: 3 named, 0 wrong', i && i.named === 3 && i.misnamed === 0 && i.problems.length === 0, n(i));
+check('4HHB: nothing wrong', i && i.misnamed === 0 && i.problems.length === 0, n(i));
+// His87 is marked in chain A: confirmed. His92 and His58 are histidines in one kind of chain only, and the
+// answer marks neither, so they fit, but aren't confirmed (P8: the row says only what was checked)
+check('...His87, marked, confirmed; His92 and His58, of one chain kind each and unmarked, fit only loosely', i && i.named === 1 && i.loose === 2, n(i));
+i = await g.inspectAnswer(a('4HHB', 'His92 on beta holds the iron.', [{ chain: 'B', resi: [92], label: 'Proximal His', category: 'active_site' }]), 25000);
+check('...marked in the chain it is about, His92 is confirmed', i && i.named === 1 && i.loose === 0 && i.misnamed === 0, n(i));
+
+console.log('\n[a name true of one chain only is not confirmed (P8)]');
+{
+  // A number where 4HHB's alpha and beta chains hold different amino acids, read from the file itself
+  const text = await (await fetch('https://files.rcsb.org/download/4HHB.pdb')).text();
+  const at = chain => new Map(text.split('\n').filter(l => l.startsWith('ATOM') && l.slice(12, 16).trim() === 'CA' && l[21] === chain).map(l => [Number(l.slice(22, 26)), l.slice(17, 20)]));
+  const alpha = at('A'), beta = at('B');
+  const resi = [...alpha.keys()].find(r => r > 10 && beta.has(r) && alpha.get(r) !== beta.get(r));
+  const name = alpha.get(resi).charAt(0) + alpha.get(resi).slice(1).toLowerCase();
+  i = await g.inspectAnswer(a('4HHB', `On the beta chain, ${name}${resi} faces the pocket.`, []), 25000);
+  check(`"${name}${resi}" (alpha's residue there, not beta's), unmarked: not confirmed, not called wrong`, i && i.named === 0 && i.loose === 1 && i.misnamed === 0, n(i));
+  i = await g.inspectAnswer(a('4HHB', `${name}${resi} faces the pocket.`, [{ chain: 'B', resi: [resi], label: 'Pocket side' }]), 25000);
+  check('...marked on beta, where it is another amino acid: not confirmed', i && i.named === 0, n(i));
+}
 
 console.log('\n[UniProt numbering in the text is not an error]');
 i = await g.inspectAnswer(a('1M17', 'Erlotinib hydrogen-bonds to the hinge at Met793, and Lys745 holds the alpha-C helix in place.', []), 25000);
-check('1M17: both accepted via the protein\'s own numbering', i && i.named === 2 && i.misnamed === 0, n(i));
+check('1M17: both accepted via the protein\'s own numbering, but not as the file\'s (the file has other residues at 793 and 745)', i && i.named === 0 && i.loose === 2 && i.misnamed === 0, n(i));
 // 793 is Trp in this file and Met in the protein's own numbering, 745 Val and Lys: Cys and Pro are neither
 i = await g.inspectAnswer(a('1M17', 'The hinge residue is Cys793 and the catalytic one is Pro745.', []), 25000);
 check('...but a type matching neither the file nor the protein is still caught', i && i.misnamed === 2 && i.named === 0, n(i));

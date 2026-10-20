@@ -91,6 +91,14 @@ res = await call({ query: 'x', currentContext: { pdbId: '1TRZ'.repeat(100), titl
 const prompt = lastAiBody?.messages?.[1]?.content ?? '';
 check('huge context -> 200', res.status === 200, `got ${res.status}`);
 check('user prompt capped (< 8000 chars, ~2K tokens)', prompt.length < 8000, `${prompt.length} chars`);
+// P17: the caps cut between residues, never inside one (the model is told to copy numbers exactly)
+const currentHighlights = prompt.match(/- Current Highlights: (.*)\n/)?.[1] ?? '';
+check('the current highlights are cut to whole ones: still valid JSON, within 2500 characters', (() => { try { return Array.isArray(JSON.parse(currentHighlights)) && currentHighlights.length <= 2500; } catch { return false; } })(), currentHighlights.slice(-60));
+const residues = Array.from({ length: 400 }, (_, k) => `A:Lys${100 + k}`);
+await call({ query: 'x', currentContext: { pdbId: '1TRZ' }, structureFacts: `Sites: ${residues.join(', ')}` });
+const factsBlock = (lastAiBody?.messages?.[1]?.content ?? '').match(/Ligand interactions" = [^\n]*\n([^\n]*)/)?.[1] ?? '';
+const lastToken = factsBlock.replace(/…$/, '').split(', ').pop();
+check('facts over 2800 characters end on a whole residue, with "…"', factsBlock.length <= 2800 && factsBlock.endsWith('…') && residues.includes(lastToken), `${factsBlock.length} chars, ends "${factsBlock.slice(-20)}"`);
 
 // 7. per-visitor rate limit: 12 a minute, then 429 with Retry-After; other visitors unaffected
 const statuses = [];
