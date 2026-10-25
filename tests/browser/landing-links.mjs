@@ -66,6 +66,8 @@ try {
   await sleep(1200);
   const shareHref = await ev(`[...document.querySelectorAll('[data-tk-body] a')].find(a => /Open this view in Argus/.test(a.textContent))?.getAttribute('href') ?? ''`);
   check('the share preview links to /app#view= on this site', shareHref.startsWith('/app#view='), shareHref.slice(0, 30));
+  const shown = await ev(`[document.querySelector('[data-app-address]').textContent, document.querySelector('.share-base')?.textContent ?? '']`);
+  check('the address bar and the share preview name this site', shown.every((text) => text === `${new URL(BASE).host}/app`), JSON.stringify(shown));
   await ev(`scrollTo(0, 0)`);
   await sleep(300);
   await ev(`document.querySelector('.metal-host.is-metal a').click()`);

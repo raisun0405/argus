@@ -5,7 +5,7 @@
 // would be emailed).
 //   node tf-browser-pass.mjs <base>
 import { launch, sleep } from '../lib/browser.mjs';
-const BASE = (process.argv[2] ?? 'https://argus-zeta-rouge.vercel.app').replace(/\/$/, '');
+const BASE = (process.argv[2] ?? 'https://argus.raisun.dev').replace(/\/$/, '');
 const NORMAL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail !== '' ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''}`); if (!ok) failures++; };

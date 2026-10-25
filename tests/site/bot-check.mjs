@@ -3,7 +3,7 @@
 // is refused by the function before any AI call. Reports, per function: through (the function answered) or
 // stopped (Vercel's challenge: x-vercel-mitigated).
 //   node tf-bot-check.mjs <base> [expect: through|stopped]
-const BASE = (process.argv[2] ?? 'https://argus-zeta-rouge.vercel.app').replace(/\/$/, '');
+const BASE = (process.argv[2] ?? 'https://argus.raisun.dev').replace(/\/$/, '');
 const EXPECT = process.argv[3] ?? 'stopped';
 let failures = 0;
 console.log(`[a script calling the AI functions on ${BASE}]`);

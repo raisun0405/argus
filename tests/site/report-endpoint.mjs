@@ -3,7 +3,7 @@
 // fire): with Bot Protection on, a script's request would be stopped before it reached the endpoint.
 //   node tf-report-live.mjs <base>
 import { launch } from '../lib/browser.mjs';
-const BASE = (process.argv[2] ?? 'https://argus-zeta-rouge.vercel.app').replace(/\/$/, '');
+const BASE = (process.argv[2] ?? 'https://argus.raisun.dev').replace(/\/$/, '');
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ' — ' + detail : ''}`); if (!ok) failures++; };
 

@@ -4,7 +4,7 @@
 // bot check before it. Invalid request bodies only, so no AI call, email or GPU job is triggered.
 //   node probe-postdeploy.mjs <base>
 import { launch, sleep } from '../lib/browser.mjs';
-const BASE = (process.argv[2] ?? 'https://argus-zeta-rouge.vercel.app').replace(/\/$/, '');
+const BASE = (process.argv[2] ?? 'https://argus.raisun.dev').replace(/\/$/, '');
 let failures = 0;
 const check = (name, ok, detail = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail !== '' ? ' — ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)) : ''}`); if (!ok) failures++; };
 
