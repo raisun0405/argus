@@ -20,7 +20,7 @@ Answers and investigations run on **NVIDIA Nemotron** through **Nebius Token Fac
 
 ---
 
-## Nemotron on Nebius Token Factory
+## NVIDIA Nemotron on Nebius Token Factory
 
 Every AI call in Argus goes to **NVIDIA Nemotron 3 Super** (`nvidia/nemotron-3-super-120b-a12b`) on
 [Nebius Token Factory](https://tokenfactory.nebius.com), through its OpenAI-compatible API, from two
@@ -39,6 +39,23 @@ answering within 25 s), and the one retry after a failure asks for `"low"`. `NEM
 Token Factory model without a code change. Nemotron 3 Super was chosen over Nemotron 3 Ultra in a side-by-side
 test on Argus's own questions, scored by the app's answer checker: fewer wrong residues and ligands
 (3 against 12 over eight questions), quicker answers, and a third of the price.
+
+### Where Token Factory sped up the work
+
+- **One OpenAI-compatible endpoint.** The Edge Functions call Token Factory with plain `fetch` and the
+  standard chat-completions request, so Nemotron went in without an SDK, and the same kind of request
+  serves every stage: answers, the plan, the write-up and the check.
+- **Choosing the model by testing, not guessing.** Every Token Factory model sits behind that one API,
+  so trying another is a change of `NEMOTRON_MODEL`. That made the side-by-side test of Nemotron 3 Super
+  against Nemotron 3 Ultra on Argus's own questions a configuration change rather than a rewrite.
+- **Speed where it matters, care where it counts.** `reasoning_effort` is set per call: `"low"` keeps
+  answers and plans quick (in test runs on the live site, an answer took about 6 s and an investigation's
+  plan about 4 s), and `"medium"` gives the cited write-up and its check room to think (13–19 s).
+- **JSON mode** (`response_format`) means every reply parses, so the app checks fields and values
+  instead of scraping text.
+
+Token Factory is the only Nebius service Argus uses. Co-fold also runs on NVIDIA: Boltz-2, an open
+model (MIT), through NVIDIA's hosted API.
 
 ## What it does
 
@@ -153,6 +170,8 @@ results or clinical advice. Predicted affinities in particular are for comparing
 **Prerequisites:** Node.js 18 or newer, and a Nebius Token Factory API key ([tokenfactory.nebius.com](https://tokenfactory.nebius.com) → API keys).
 
 ```bash
+git clone https://github.com/raisun0405/argus.git
+cd argus
 npm install
 cp .env.example .env.local   # then paste your NEBIUS_API_KEY into .env.local
 npm run dev                  # http://localhost:3000 (the landing page); the app is at /app
