@@ -250,52 +250,54 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
         <p className="text-[10px] touch:text-[12px] text-ink-dim">Expected position error (Å)</p>
       </div>
 
-      <div data-pae-readout aria-live="polite" className="min-h-[18px]">
-        {lit ? (
-          <div className="space-y-1.5">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 min-w-0">
-                {swatch(PAE_COLORS.scored)}
-                <span className="text-xs touch:text-[14px] font-semibold text-ink-strong tabular-nums">{litSingle ? 'Residue' : 'Residues'} {span(lit.scored, first)}</span>
-                <span className="text-[10px] touch:text-[12px] text-ink-dim">scored</span>
-              </div>
-              {!diagonal && (
+      <div data-pae-readout className="min-h-[18px]">
+        {/* Heard: what a drag lit up. Not heard: the value under the pointer, which changes on every move */}
+        <div aria-live="polite">
+          {lit && (
+            <div className="space-y-1.5">
+              <div className="space-y-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  {swatch(PAE_COLORS.aligned)}
-                  <span className="text-xs touch:text-[14px] font-semibold text-ink-strong tabular-nums">{litSingle ? 'Residue' : 'Residues'} {span(lit.aligned, first)}</span>
-                  <span className="text-[10px] touch:text-[12px] text-ink-dim">lined up on</span>
+                  {swatch(PAE_COLORS.scored)}
+                  <span className="text-xs touch:text-[14px] font-semibold text-ink-strong tabular-nums">{litSingle ? 'Residue' : 'Residues'} {span(lit.scored, first)}</span>
+                  <span className="text-[10px] touch:text-[12px] text-ink-dim">scored</span>
                 </div>
-              )}
+                {!diagonal && (
+                  <div className="flex items-center gap-2 min-w-0">
+                    {swatch(PAE_COLORS.aligned)}
+                    <span className="text-xs touch:text-[14px] font-semibold text-ink-strong tabular-nums">{litSingle ? 'Residue' : 'Residues'} {span(lit.aligned, first)}</span>
+                    <span className="text-[10px] touch:text-[12px] text-ink-dim">lined up on</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] touch:text-[13px] leading-snug text-ink">
+                {litSingle
+                  ? `${paeAt(d, lit.aligned[0], lit.scored[0])} Å expected error.`
+                  : diagonal
+                    ? `${litMean.toFixed(1)} Å expected error within, on average.`
+                    : `${litMean.toFixed(1)} Å expected error between them, on average: ${arrangementWord(litMean)}.`}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  data-pae-zoom
+                  onClick={onZoom}
+                  className="px-2.5 py-1 touch:py-2 rounded-md border border-line bg-input text-[11px] touch:text-[13px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
+                >
+                  Zoom to {diagonal ? 'it' : 'them'}
+                </button>
+                <button
+                  type="button"
+                  data-pae-clear
+                  onClick={() => onBox(null)}
+                  className="px-2.5 py-1 touch:py-2 rounded-md text-[11px] touch:text-[13px] font-medium text-ink-muted hover:text-ink-strong transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
-            <p className="text-[11px] touch:text-[13px] leading-snug text-ink">
-              {litSingle
-                ? `${paeAt(d, lit.aligned[0], lit.scored[0])} Å expected error.`
-                : diagonal
-                  ? `${litMean.toFixed(1)} Å expected error within, on average.`
-                  : `${litMean.toFixed(1)} Å expected error between them, on average: ${arrangementWord(litMean)}.`}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                data-pae-zoom
-                onClick={onZoom}
-                className="px-2.5 py-1 touch:py-2 rounded-md border border-line bg-input text-[11px] touch:text-[13px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
-              >
-                Zoom to {diagonal ? 'it' : 'them'}
-              </button>
-              <button
-                type="button"
-                data-pae-clear
-                onClick={() => onBox(null)}
-                className="px-2.5 py-1 touch:py-2 rounded-md text-[11px] touch:text-[13px] font-medium text-ink-muted hover:text-ink-strong transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-[11px] touch:text-[13px] text-ink-muted tabular-nums">{readout ?? 'Nothing lit up yet.'}</p>
-        )}
+          )}
+        </div>
+        {!lit && <p aria-hidden={readout ? true : undefined} className="text-[11px] touch:text-[13px] text-ink-muted tabular-nums">{readout ?? 'Nothing lit up yet.'}</p>}
       </div>
 
       <div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { COFOLD_MAX_RESIDUES, keptCofactors, siteForChains, type CofoldSetup } from '../services/cofoldService';
 import type { CofoldPocket } from '../types';
 import Dropdown from './Dropdown';
@@ -89,6 +89,9 @@ const CofoldMenu: React.FC<CofoldMenuProps> = ({ setup, sourceLabel, initialSite
       : sameTwice ? 'Pick two different molecules to compare'
       : null);
   const canSubmit = ligandText.trim() !== '' && (!comparing || second !== '') && !problem;
+  // A busy chat is said at once; what is wrong with the choices, once a molecule is named
+  const shownProblem = disabledReason ?? (ligandText.trim() !== '' ? problem : null);
+  const problemId = useId();
 
   const submit = () => {
     if (!canSubmit) return;
@@ -145,6 +148,7 @@ const CofoldMenu: React.FC<CofoldMenuProps> = ({ setup, sourceLabel, initialSite
           onFocus={() => setActiveField('first')}
           placeholder={comparing ? 'First molecule: name, PDB code or SMILES' : 'Drug name, PDB ligand code or SMILES'}
           aria-label="Molecule to co-fold: a name, a PDB ligand code or a SMILES string"
+          aria-describedby={shownProblem ? problemId : undefined}
           spellCheck={false}
           autoComplete="off"
           maxLength={500}
@@ -258,12 +262,13 @@ const CofoldMenu: React.FC<CofoldMenuProps> = ({ setup, sourceLabel, initialSite
           </label>
         )}
 
-        {problem && ligandText.trim() !== '' && <p className="text-[10px] text-bad leading-snug">{problem}</p>}
+        {shownProblem && <p id={problemId} role="alert" className="text-[11.5px] touch:text-[13px] text-bad leading-snug">{shownProblem}</p>}
 
         <div className="flex items-center gap-2.5 pt-0.5">
           <button
             type="submit"
             disabled={!canSubmit}
+            aria-describedby={shownProblem ? problemId : undefined}
             title={problem ?? (!ligandText.trim() ? 'Name a molecule first' : comparing && !second ? 'Name the second molecule' : undefined)}
             className="flex-shrink-0 whitespace-nowrap px-3 py-1.5 touch:px-5 touch:py-2.5 touch:text-[14px] rounded-md bg-brand text-brand-ink text-xs font-semibold hover:bg-brand-dark hover:shadow-[0_4px_18px_-4px_rgb(var(--c-accent)/0.65)] disabled:bg-chip disabled:text-ink-dim disabled:border disabled:border-line disabled:shadow-none disabled:cursor-not-allowed transition-all"
           >

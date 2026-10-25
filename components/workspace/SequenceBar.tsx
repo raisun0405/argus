@@ -43,7 +43,6 @@ const SequenceBar: React.FC<SequenceBarProps> = ({ model, selection, marks = [],
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragTo, setDragTo] = useState<number | null>(null);
-  const [hovered, setHovered] = useState<number | null>(null);
   const lastPointer = useRef<string>('mouse');
 
   // Which residues carry a mark, and in which colour (the first mark wins)
@@ -129,10 +128,7 @@ const SequenceBar: React.FC<SequenceBarProps> = ({ model, selection, marks = [],
       <div
         ref={trackRef}
         className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden argus-thin-scroll"
-        onMouseLeave={() => {
-          setHovered(null);
-          onHover?.(null);
-        }}
+        onMouseLeave={() => onHover?.(null)}
       >
         <div className="relative h-full" style={{ width }}>
           {/* Ruler */}
@@ -180,14 +176,14 @@ const SequenceBar: React.FC<SequenceBarProps> = ({ model, selection, marks = [],
                     // A finger's tap (a mouse picked on pointerdown already; a swipe that scrolled never clicks)
                     if (lastPointer.current === 'touch') onPick(key, {});
                   }}
+                  // The hover tint is CSS: crossing a residue re-renders only what reads the hover (the status bar)
                   onPointerEnter={() => {
-                    setHovered(i);
                     onHover?.(key);
                     if (dragFrom !== null) setDragTo(i);
                   }}
                   title={`${residueLabel(r)} · chain ${r.chain}${mark ? ` · ${mark.label}` : ''}`}
                   className={`relative flex items-start justify-center text-[11px] touch:text-[12.5px] leading-[14px] transition-colors ${
-                    picked ? 'bg-brand text-brand-ink font-semibold' : hovered === i ? 'bg-chip text-ink-strong' : 'text-ink-muted'
+                    picked ? 'bg-brand text-brand-ink font-semibold' : 'text-ink-muted hover:bg-chip hover:text-ink-strong'
                   } ${gap ? 'border-l border-dashed border-line-2' : ''}`}
                   style={{ width: cell, height: 20 }}
                 >

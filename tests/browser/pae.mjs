@@ -83,9 +83,16 @@ try {
   writeFileSync(`${OUT}/shots/pae/desktop-open.png`, Buffer.from((await b.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
 
   console.log('\n[lighting stretches up]');
+  const announced = `(document.querySelector('[data-pae-readout] [aria-live]')?.textContent ?? '').trim()`;
+  const over = await cellPoint(b, 199, 99);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: over.x, y: over.y });
+  await sleep(200);
+  const hovered = await b.ev(text('[data-pae-readout]'));
+  check('the value under the pointer shows, but is not announced on every move', /^Residue 200 lined up on 100: [\d.]+ Å$/.test(hovered) && (await b.ev(announced)) === '' && await b.ev(`!!document.querySelector('[data-pae-readout] p[aria-hidden=true]')`), hovered);
   await mouseDrag(b, [329, 149], [349, 249]);
   const readout = await b.ev(text('[data-pae-readout]'));
   check('dragging lights up a block: scored 330–350, lined up on 150–250', readout.includes('Residues 330–350') && readout.includes('Residues 150–250') && readout.includes('between them'), readout.slice(0, 160));
+  check('...and what it lit up is announced', (await b.ev(announced)).includes('Residues 330–350'));
   check('...in 3D: the scored stretch blue, the other orange, the rest grey', (await b.ev(colourAt(340))) === BLUE && (await b.ev(colourAt(200))) === ORANGE && ![BLUE, ORANGE, await b.ev(plddtAt(50))].includes(await b.ev(colourAt(50))));
   const legend = await b.ev(text('[data-pae-legend]'));
   check('...and the legend says which is which and how sure AlphaFold is', legend.includes('330–350') && legend.includes('150–250') && /Å expected error between them/.test(legend), legend.slice(0, 140));

@@ -62,15 +62,18 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz, onCorrectAnswer }) => {
           const state = !checked
             ? (isPicked ? 'picked' : 'open')
             : isRight ? (isPicked || !multi ? 'right' : 'missed') : isPicked ? 'wrong' : 'other';
+          // The marks are icons; a screen reader hears the verdict instead
+          const verdict = state === 'right' ? (isPicked ? 'your answer, right' : 'the right answer') : state === 'wrong' ? 'your answer, wrong' : null;
           return (
+            // Answered options stay focusable (aria-disabled, not disabled): the explanation refers to them
             <button
               key={idx}
               type="button"
               onClick={() => choose(idx)}
-              disabled={checked}
+              aria-disabled={checked || undefined}
               {...(multi ? { role: 'checkbox', 'aria-checked': isPicked } : { 'aria-pressed': isPicked })}
               data-quiz-option={state}
-              className={`w-full flex items-center gap-3 rounded-xl border px-3 py-chat-option-y text-left text-chat-aside font-medium transition-all ${
+              className={`w-full flex items-center gap-3 rounded-xl border px-3 py-chat-option-y text-left text-chat-aside font-medium transition-all ${checked ? 'cursor-default ' : ''}${
                 state === 'right' ? 'border-good/45 bg-good/[0.08] text-ink-strong'
                 : state === 'missed' ? 'border-dashed border-good/55 text-ink'
                 : state === 'wrong' ? 'border-bad/45 bg-bad/[0.08] text-ink-strong'
@@ -94,6 +97,7 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz, onCorrectAnswer }) => {
                 {state === 'wrong' && <CrossIcon />}
               </span>
               <span className="min-w-0 flex-1">{quiz.options[idx]}</span>
+              {verdict && <span className="sr-only">: {verdict}</span>}
               {state === 'missed' && <span className="flex-shrink-0 text-[10.5px] font-medium text-good">Missed</span>}
             </button>
           );

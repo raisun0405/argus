@@ -63,6 +63,7 @@ import {
 } from '../services/structureModel';
 import SequenceBar, { type SequenceMark } from './workspace/SequenceBar';
 import StatusBar from './workspace/StatusBar';
+import { setHoveredResidue } from './workspace/hoveredResidue';
 import InspectorSection, { Switch } from './workspace/InspectorSection';
 import { FocusSection, LayersSection, StyleSection, type Layer } from './workspace/InspectorPanels';
 import ResizeHandle, { usePaneSize } from './workspace/ResizeHandle';
@@ -145,6 +146,9 @@ const NO_HIGHLIGHTS: Highlight[] = [];
 // Highlights with more residues than this are drawn as sticks without the ball overlay
 const MAX_BALL_RESIDUES = 8;
 
+// How long a tap's tooltip stays up on a touch screen, when no other touch puts it away
+const TAP_TOOLTIP_MS = 6000;
+
 // AlphaFold models up to this size have their confidence map fetched with them (about 1 MB, gzipped,
 // at most), so the chat can use it; bigger ones fetch it when the map is opened
 const PAE_PREFETCH = 1500;
@@ -183,6 +187,9 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0); // "Try again" after a failed download
   const [tooltip, setTooltip] = useState<{ text: string, subtext?: string, x: number, y: number } | null>(null);
+  const lastPointerRef = useRef('mouse'); // What last touched the 3D view: a finger's tap gets the tooltip a mouse hovers for
+  const tapTooltipTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(tapTooltipTimer.current), []);
 
   // Colour theme: 3Dmol draws with real colours, so it needs the palette values
   const [themeId] = useTheme();
@@ -207,8 +214,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   const [entryProteinList, setEntryProteinList] = useState<{ pdbId: string; proteins: SiftsAccession[] }>({ pdbId: '', proteins: [] });
   const entryProteins = entryProteinList.pdbId === pdbId.toUpperCase() ? entryProteinList.proteins : [];
   const [focusSite, setFocusSite] = useState<(VariantSite & { label: string }) | null>(null);
-  // Panels opened from the toolbar fold on phones (openOverlay); one restored from a share link does too
-  const [isLensCollapsed, setIsLensCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches);
   const [lensRetry, setLensRetry] = useState(0);
   const schemeBeforeOverlay = useRef<ColorScheme>('element');
   const lensAutoKey = useRef<string | null>(null);
@@ -216,13 +221,11 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   // Pocket Radar (P2Rank ligand-binding pockets via PrankWeb)
   const [pockets, setPockets] = useState<PocketRadarState>({ status: 'idle' });
   const [focusPocket, setFocusPocket] = useState<number | null>(null); // Rank of the pocket picked in the panel
-  const [isPocketsCollapsed, setIsPocketsCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches);
   const [pocketRetry, setPocketRetry] = useState(0);
 
   // The workspace: what the file contains, what is picked, and how the columns are arranged
   const [selection, setSelection] = useState<ResidueSelection>(emptySelection);
   const [activeChain, setActiveChain] = useState<string>('');
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [inspectorWidth, setInspectorWidth] = usePaneSize('argus-inspector-width', 248);
   const [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches);
   const [openSections, setOpenSections] = useState<string[]>(['focus', 'style']);
@@ -236,7 +239,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
   // Interactions (PLIP-style contacts of a ligand, computed here from the coordinates)
   const [interactionKey, setInteractionKey] = useState<string | null>(null); // Ligand picked in the panel
   const [focusInteraction, setFocusInteraction] = useState<number | null>(null); // Index into its interactions
-  const [isInteractionsCollapsed, setIsInteractionsCollapsed] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches);
 
   // Overlay: another structure of the same protein laid over this one, one chain onto one chain. It is
   // its own 3Dmol model, added after the hover and click handlers and under a chain ID this structure
@@ -712,11 +714,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     setFocusSite(null);
     setFocusPocket(null);
     setFocusInteraction(null);
-    // Phones open the panel folded to its header (like Settings), so the colouring stays in view
-    const fold = window.matchMedia('(max-width: 639px)').matches;
-    if (scheme === 'pathogenicity') setIsLensCollapsed(fold);
-    else if (scheme === 'pockets') setIsPocketsCollapsed(fold);
-    else if (scheme === 'interactions') setIsInteractionsCollapsed(fold);
     // A phone shows the tool's panel in the sheet, half height, over the freshly coloured structure
     if (phone) {
       if (phoneSheet !== 'inspector') sheetForToolRef.current = true;
@@ -1004,7 +1001,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     setInteractionKey(null);
     setFocusInteraction(null);
     setSelection(emptySelection());
-    setHoveredKey(null);
+    setHoveredResidue(null);
     setHiddenLayers(new Set());
     setAlphaFill(null);
     if (sharedStructureRef.current !== structureId) sharedStructureRef.current = null; // The link's view is done with
@@ -1217,14 +1214,8 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         viewerInstance.addModel(pdbContent, "pdb");
       }
       
-      // SETUP HOVER LISTENERS
-      viewerInstance.setHoverable({}, true, (atom: any, viewer: any, event: any, container: any) => {
-          if (!atom) return;
-          
-          const rect = viewerRef.current?.getBoundingClientRect();
-          const x = event.clientX - (rect?.left || 0);
-          const y = event.clientY - (rect?.top || 0);
-
+      // What the tooltip says about an atom: on hover, and on a touch screen (which has no hover) on a tap
+      const describeAtom = (atom: any) => {
           // 1. Identify if this atom is part of a Highlighted Region
           const highlight = activeHighlights.find(h => 
              h.chain === atom.chain && h.resi.includes(atom.resi)
@@ -1335,12 +1326,18 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
              subText = `${subText} · pLDDT ${Math.round(plddtValue(atom.b, plddtFractionRef.current))} (${plddtBand(atom.b, plddtFractionRef.current).label.toLowerCase()})`;
           }
 
-          setTooltip({ text: mainText, subtext: subText, x, y });
-          setHoveredKey(`${atom.chain}|${atom.resi}|${(atom.icode ?? '').trim()}`);
+          return { text: mainText, subtext: subText };
+      };
 
+      // SETUP HOVER LISTENERS
+      viewerInstance.setHoverable({}, true, (atom: any, viewer: any, event: any, container: any) => {
+          if (!atom) return;
+          const rect = viewerRef.current?.getBoundingClientRect();
+          setTooltip({ ...describeAtom(atom), x: event.clientX - (rect?.left || 0), y: event.clientY - (rect?.top || 0) });
+          setHoveredResidue(`${atom.chain}|${atom.resi}|${(atom.icode ?? '').trim()}`);
       }, (atom: any) => {
           setTooltip(null);
-          setHoveredKey(null);
+          setHoveredResidue(null);
       });
 
       // CLICK TO SELECT: every professional viewer answers a click on the structure; ours used to
@@ -1350,6 +1347,15 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           const key = `${atom.chain}|${atom.resi}|${(atom.icode ?? '').trim()}`;
           const source = event?.sourceEvent ?? event;
           pickResidueRef.current(key, { toggle: Boolean(source?.ctrlKey || source?.metaKey), range: Boolean(source?.shiftKey) });
+          // A finger can't hover: its tap also says what it landed on (as the panels' "tap" lines promise),
+          // over the atom, until the next touch or for a few seconds
+          if (lastPointerRef.current === 'touch') {
+             const rect = viewerRef.current?.getBoundingClientRect();
+             const at = viewerInstance.modelToScreen({ x: atom.x, y: atom.y, z: atom.z }); // Page coordinates
+             setTooltip({ ...describeAtom(atom), x: at.x - window.scrollX - (rect?.left || 0), y: at.y - window.scrollY - (rect?.top || 0) });
+             window.clearTimeout(tapTooltipTimer.current);
+             tapTooltipTimer.current = window.setTimeout(() => setTooltip(null), TAP_TOOLTIP_MS);
+          }
       });
 
       // Signal styling to run
@@ -2520,7 +2526,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         onCofold={showCofoldTool && selection.keys.size >= 3 ? () => setToolMenu('cofold') : undefined}
         onSelectMarked={highlights.length > 0 ? () => { focusHighlights(highlights); } : undefined}
         onSelectChain={chain => { selectResidues({ chain, from: -Infinity, to: Infinity }); }}
-        onHover={setHoveredKey}
+        onHover={setHoveredResidue}
       />
     </InspectorSection>
   );
@@ -2585,14 +2591,10 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     {colorScheme === 'pathogenicity' && (
       <InspectorSection id="lens" title="Variant Lens" icon={<DnaIcon />} active open={!foldedTools.includes('lens')} onToggle={toggleTool} onClose={closeOverlay} closeLabel="Close Variant Lens">
         <VariantLensPanel
-          docked
           status={variantLens.status}
           data={variantLens.data}
           error={variantLens.error}
-          collapsed={false}
           focused={focusSite}
-          onToggleCollapsed={() => {}}
-          onClose={closeOverlay}
           onRetry={() => setLensRetry(n => n + 1)}
           onFocus={focusOnSite}
         />
@@ -2602,13 +2604,9 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     {colorScheme === 'pockets' && (
       <InspectorSection id="pockets" title="Pocket Radar" icon={<RadarIcon />} active open={!foldedTools.includes('pockets')} onToggle={toggleTool} onClose={closeOverlay} closeLabel="Close Pocket Radar">
         <PocketRadarPanel
-          docked
           state={pockets}
-          collapsed={false}
           focusedRank={focusPocket}
           isSurface={vizStyle === 'surface'}
-          onToggleCollapsed={() => {}}
-          onClose={closeOverlay}
           onRetry={() => setPocketRetry(n => n + 1)}
           onFocus={focusOnPocket}
           onToggleSurface={() => setVizStyle(v => (v === 'surface' ? 'cartoon' : 'surface'))}
@@ -2642,16 +2640,12 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
     {colorScheme === 'interactions' && (
       <InspectorSection id="interactions" title="Interactions" icon={<InteractionsIcon />} active open={!foldedTools.includes('interactions')} onToggle={toggleTool} onClose={closeOverlay} closeLabel="Close Interactions">
         <InteractionsPanel
-          docked
           sites={interactionSites}
           selected={selectedSite}
           focused={focusInteraction}
-          collapsed={false}
           names={interactionNames}
           onSelect={selectInteractionLigand}
           onFocus={focusOnInteraction}
-          onToggleCollapsed={() => {}}
-          onClose={closeOverlay}
         />
       </InspectorSection>
     )}
@@ -3099,7 +3093,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           onPick={pickResidue}
           onPickRange={pickRange}
           onSelectChain={pickChain}
-          onHover={setHoveredKey}
+          onHover={setHoveredResidue}
         />
       )}
 
@@ -3109,7 +3103,13 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
       <div className="absolute inset-x-0 top-0" data-sheet-open={sheetOpen || undefined} style={{ bottom: sheetOpen ? `${SHEET_HEIGHT[sheetSize]}%` : 0 }}>
       {/* 3Dmol's unhover callback never fires when the pointer leaves the canvas. touch-none: a finger's
           drag and pinch turn and zoom the structure, never the page. */}
-      <div ref={viewerRef} className="w-full h-full relative z-10 touch-none" onMouseLeave={() => { setTooltip(null); setHoveredKey(null); }} />
+      <div
+        ref={viewerRef}
+        className="w-full h-full relative z-10 touch-none"
+        onMouseLeave={() => { setTooltip(null); setHoveredResidue(null); }}
+        // A new touch puts a tap's tooltip away (a tap on an atom shows its own on release)
+        onPointerDown={e => { lastPointerRef.current = e.pointerType; if (e.pointerType !== 'mouse') setTooltip(null); }}
+      />
 
       {/* A failed switch to the AlphaFold model says why, briefly, over the corner of the canvas */}
       {afNotice && (
@@ -3265,7 +3265,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
           </p>
           {alphaFill && alphaFill.transplants.length > 0 && (
             <p className="mt-1.5 text-[10px] leading-snug text-ink-dim">
-              Ligands: copied in by AlphaFill from related PDB structures — hover one for its source.
+              Ligands: copied in by AlphaFill from related PDB structures — <span className="touch:hidden">hover over</span><span className="hidden touch:inline">tap</span> one for its source.
             </p>
           )}
           {cofoldModel && (
@@ -3335,6 +3335,7 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
 
       {tooltip && (
         <div
+          data-viewer-tooltip
           className="absolute z-50 px-3 py-2 bg-canvas/95 backdrop-blur-sm text-ink rounded-lg pointer-events-none shadow-tooltip transform -translate-x-1/2 -translate-y-[120%] border border-line-2"
           style={{ top: tooltip.y, left: tooltip.x, minWidth: '140px', maxWidth: '280px' }}
         >
@@ -3394,7 +3395,6 @@ const ProteinViewer: React.FC<ProteinViewerProps> = ({ pdbId, title, highlights,
         <StatusBar
           model={model}
           selection={selection}
-          hovered={hoveredKey}
           busy={loading ? 'Loading the structure…' : null}
           caption={phone ? phoneCaption : undefined}
           onClearSelection={clearSelection}

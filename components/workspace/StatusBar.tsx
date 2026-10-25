@@ -3,6 +3,7 @@ import type { Selection, StructureModel } from '../../services/structureModel';
 import { describeSelection, residueLabel } from '../../services/structureModel';
 import { shortcutLabel } from '../../services/commands';
 import { Kbd } from './InspectorSection';
+import { useHoveredResidue } from './hoveredResidue';
 
 const paletteKeys = shortcutLabel('mod+k');
 
@@ -15,7 +16,6 @@ const paletteKeys = shortcutLabel('mod+k');
 interface StatusBarProps {
   model: StructureModel | null;
   selection: Selection;
-  hovered: string | null;
   busy?: string | null; // What the workspace is waiting for
   caption?: string; // What is on screen, when nothing else is said (a phone, whose header has no room for the name)
   onClearSelection: () => void;
@@ -28,7 +28,8 @@ const Hint: React.FC<{ keys: string; children: React.ReactNode }> = ({ keys, chi
   <span className="inline-flex items-center gap-1"><Kbd>{keys}</Kbd><span>{children}</span></span>
 );
 
-const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, caption, onClearSelection, onOpenPalette, onResetView, onSavePicture }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ model, selection, busy, caption, onClearSelection, onOpenPalette, onResetView, onSavePicture }) => {
+  const hovered = useHoveredResidue();
   // "Picture" says what happened for a moment: saved (a tick), or not yet possible
   const [saved, setSaved] = React.useState<boolean | null>(null);
   const savedTimer = React.useRef<number | undefined>(undefined);
@@ -46,7 +47,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ model, selection, hovered, busy, 
   return (
     <div className="flex items-center gap-2.5 h-7 touch:h-10 flex-shrink-0 border-t border-line bg-surface/40 pl-3 pr-1.5 text-[11px] touch:text-[12.5px] text-ink-muted whitespace-nowrap overflow-hidden">
       {/* What is picked, what the pointer is over, what is loading, or how the mouse works */}
-      <div className="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
+      <div data-status-line className="min-w-0 flex-1 flex items-center gap-2 overflow-hidden">
         {count > 0 ? (
           <>
             <span className="flex-shrink-0 inline-flex items-center gap-1 h-5 touch:h-7 pl-2 touch:pl-2.5 pr-0.5 rounded-full bg-chip text-ink-strong font-medium tabular-nums">

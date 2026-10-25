@@ -143,7 +143,7 @@ try {
   check('no repair call (answer consistent)', held.length === 0);
 
   console.log('\n[6] close and reopen from the Colouring menu');
-  await click(`document.querySelector('button[aria-label="Exit Pocket Radar"]')`);
+  await click(`document.querySelector('button[aria-label="Close Pocket Radar"]')`);
   await sleep(800);
   check('panel closed', (await ev(`${rows}.length`)) === 0);
   check('colouring back to Element', (await ev(`document.querySelector('[role=combobox][aria-label="Colouring"]')?.textContent.trim()`)) === 'Element');

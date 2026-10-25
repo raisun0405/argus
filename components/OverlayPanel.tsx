@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import Dropdown from './Dropdown';
 import { Explanation, Term, useExplain } from './Explain';
 import { Field, Group, Segmented, Switch } from './workspace/InspectorSection';
@@ -73,6 +73,7 @@ export const OverlayPicker: React.FC<OverlayPickerProps> = ({ accession, choices
   const entries = current?.entries ? current.entries.filter(e => !skip.has(e.id)).slice(0, MAX_SUGGESTIONS) : null;
   const id = typed.trim().toUpperCase();
   const problem = !id ? null : !PDB_ID.test(id) ? 'A PDB ID is four characters, like 1AKE' : onScreen.has(id) ? "That's the structure on screen" : null;
+  const problemId = useId();
 
   return (
     <div className="space-y-2.5">
@@ -123,6 +124,7 @@ export const OverlayPicker: React.FC<OverlayPickerProps> = ({ accession, choices
           onChange={e => setTyped(e.target.value.replace(/\s/g, '').slice(0, 4))}
           placeholder={entries?.[0] ? `PDB ID, like ${entries[0].id}` : 'PDB ID'}
           aria-label="PDB ID of the structure to lay over"
+          aria-describedby={problem ? problemId : undefined}
           spellCheck={false}
           autoComplete="off"
           className="min-w-0 flex-1 px-2.5 py-1.5 touch:py-2 bg-input border border-line rounded-md text-xs text-ink uppercase placeholder:normal-case placeholder:text-ink-dim caret-brand-fg hover:border-line-2 focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-ink-dim transition-colors"
@@ -130,12 +132,15 @@ export const OverlayPicker: React.FC<OverlayPickerProps> = ({ accession, choices
         <button
           type="submit"
           disabled={!id || Boolean(problem)}
+          aria-describedby={problem ? problemId : undefined}
           className="flex-shrink-0 whitespace-nowrap px-3 py-1.5 touch:py-2.5 touch:px-4 touch:text-[14px] rounded-md bg-brand text-brand-ink text-xs font-semibold hover:bg-brand-dark disabled:bg-chip disabled:text-ink-dim disabled:border disabled:border-line disabled:cursor-not-allowed transition-colors"
         >
           Lay over
         </button>
       </form>
-      {problem && <p className="text-[10px] text-bad leading-snug">{problem}</p>}
+      {/* Polite, not an alert: it appears from the first character typed, and must not cut the typing
+          short. Always present, since a live region is only heard when its text changes */}
+      <p id={problemId} role="status" className={problem ? 'text-[11.5px] touch:text-[13px] text-bad leading-snug' : 'sr-only'}>{problem}</p>
     </div>
   );
 };

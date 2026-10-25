@@ -73,7 +73,17 @@ try {
   await b.waitFor(`${shownStructure('P04637')} && /\\d+%/.test(${badge('coverage')})`, 60000);
   await b.say('which parts of this model have been solved by experiment?');
   await b.waitFor(`document.querySelectorAll('[data-message="assistant"]').length >= 4`, 30000);
-  check('a question about the model goes with what experiments resolve', requests.at(-1)?.facts.includes('Experimental structures of this protein (PDBe-KB') && requests.at(-1)?.facts.includes('known only from this prediction: 63–87'), (requests.at(-1)?.facts.match(/Experimental structures[^\n]{0,160}/) ?? ['(none)'])[0]);
+  // New PDB entries move the numbers (residue 69 got resolved in October 2026), so the line is checked for
+  // agreeing with itself: what it calls known only from the prediction is exactly what it lists as unresolved
+  const facts = requests.at(-1)?.facts ?? '';
+  const expand = list => list.split(', ').flatMap(r => { const [a, b = a] = r.split('–').map(Number); return Array.from({ length: b - a + 1 }, (_, i) => a + i); });
+  const resolvedList = facts.match(/resolve residues ([\d–, ]+) \(\d+% of (\d+)\)/);
+  const onlyPredicted = facts.match(/known only from this prediction: ([\d–, ]+)\./);
+  const agrees = !!resolvedList && !!onlyPredicted && (() => {
+    const resolved = new Set(expand(resolvedList[1])), missing = expand(onlyPredicted[1]);
+    return missing.length > 0 && missing.every(n => !resolved.has(n)) && resolved.size + missing.length === Number(resolvedList[2]);
+  })();
+  check('a question about the model goes with what experiments resolve, and what only the prediction shows', facts.includes('Experimental structures of this protein (PDBe-KB') && agrees, (facts.match(/Experimental structures[^\n]{0,320}/) ?? ['(none)'])[0]);
 
   console.log('\n[two proteins, renumbered: 4HHB]');
   await b.say('show me haemoglobin');

@@ -59,7 +59,7 @@ try {
   answer = () => ({ status: 502, body: { error: 'Model returned invalid JSON' } });
   await say('investigate: which mutations are likely harmful here?');
   check('finished anyway', await waitFor(`${card}?.dataset.phase === 'done'`, 60000), await ev(`${card}?.dataset.phase`));
-  check('both AI calls were tried', seen.includes('plan') && seen.includes('write'), JSON.stringify(seen));
+  check('both AI calls were tried, each once more after its 502', JSON.stringify(seen) === JSON.stringify(['plan', 'plan', 'write', 'write']), JSON.stringify(seen));
   check('planned from the question\'s words, and says so', /Planned from the question's wording/.test(await ev(`${card}.innerText`)));
   check('the step results stand in for the write-up, and it says so', /The AI couldn't write this up/.test(await ev(`${card}.innerText`)) && await ev(`${card}.querySelectorAll('[data-cite]').length >= 2`));
   check('steps: annotations and variant effects (the question asks about mutations)', /UniProt and PDBe annotations/.test(await ev(`(${card}.querySelector('[data-trace-toggle]').click(), new Promise(r => setTimeout(() => r(${card}.innerText), 300)))`)) && /Variant effects/.test(await ev(`${card}.innerText`)));

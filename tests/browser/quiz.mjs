@@ -58,7 +58,7 @@ const say = async (text) => {
 };
 const waitFor = async (expr, tries = 80) => { for (let i = 0; i < tries; i++) { if (await ev(expr)) return true; await sleep(250); } return false; };
 // The last quiz card's rows, in screen order
-const rows = () => ev(`[...[...document.querySelectorAll('[data-quiz]')].pop().querySelectorAll('[data-quiz-option]')].map(b => ({ text: b.querySelector('span.flex-1').textContent, state: b.dataset.quizOption, role: b.getAttribute('role'), checked: b.getAttribute('aria-checked'), pressed: b.getAttribute('aria-pressed'), disabled: b.disabled, round: b.querySelector('span[aria-hidden]').className.includes('rounded-full'), missed: b.textContent.includes('Missed') }))`);
+const rows = () => ev(`[...[...document.querySelectorAll('[data-quiz]')].pop().querySelectorAll('[data-quiz-option]')].map(b => ({ text: b.querySelector('span.flex-1').textContent, state: b.dataset.quizOption, role: b.getAttribute('role'), checked: b.getAttribute('aria-checked'), pressed: b.getAttribute('aria-pressed'), locked: b.getAttribute('aria-disabled') === 'true' && !b.disabled && b.tabIndex === 0, said: b.querySelector('.sr-only')?.textContent ?? '', round: b.querySelector('span[aria-hidden]').className.includes('rounded-full'), missed: b.textContent.includes('Missed') }))`);
 const card = (sel) => `[...document.querySelectorAll('[data-quiz]')].pop()${sel}`;
 const clickOption = (text) => ev(`[...${card('')}.querySelectorAll('[data-quiz-option]')].find(b => b.querySelector('span.flex-1').textContent === ${JSON.stringify(text)}).click()`);
 const status = () => ev(`${card(`.querySelector('[role=status]')`)}?.innerText.replace(/\\n+/g, '\\n') ?? null`);
@@ -89,7 +89,11 @@ try {
   await sleep(500);
   r = await rows();
   check('wrong pick -> marked wrong, right answer shown, rest dimmed', r.find(x => x.text === 'Ile50 of each chain').state === 'wrong' && r.find(x => x.text === single.options[0]).state === 'right' && r.filter(x => x.state === 'other').length === 2, r.map(x => x.state).join(','));
-  check('all locked', r.every(x => x.disabled));
+  check('all locked, yet still reachable by keyboard', r.every(x => x.locked));
+  check('a screen reader hears the verdicts', r.find(x => x.text === 'Ile50 of each chain').said === ': your answer, wrong' && r.find(x => x.text === single.options[0]).said === ': the right answer' && r.filter(x => x.said === '').length === 2, r.map(x => x.said).join(','));
+  await clickOption(r.find(x => x.state === 'other').text);
+  await sleep(200);
+  check('a click after answering changes nothing', JSON.stringify((await rows()).map(x => x.state)) === JSON.stringify(r.map(x => x.state)));
   check('"Not quite" + explanation', (await status())?.startsWith('Not quite\nEach monomer contributes Asp25'), JSON.stringify(await status()));
   await shot('quiz-single-wrong');
 
@@ -127,7 +131,8 @@ try {
   check('wrong pick -> wrong', state('CysA6–CysA11').state === 'wrong');
   check('right one not picked -> missed, labelled', state('CysA20–CysB19').state === 'missed' && state('CysA20–CysB19').missed);
   check('the rest -> dimmed', state('CysB7–CysB19').state === 'other');
-  check('all locked, Check button gone', r.every(x => x.disabled) && !(await ev(`[...${card('')}.querySelectorAll('button')].some(b => b.textContent.trim() === 'Check')`)));
+  check('right pick said as right', state('CysA7–CysB7').said === ': your answer, right');
+  check('all locked, Check button gone', r.every(x => x.locked) && !(await ev(`[...${card('')}.querySelectorAll('button')].some(b => b.textContent.trim() === 'Check')`)));
   const partly = await status();
   check('"Partly right · 1 of 2 found, 1 wrong"', partly?.startsWith('Partly right · 1 of 2 found, 1 wrong\nA7–B7'), JSON.stringify(partly));
   check('no "Showing it in 3D" when not fully right', !partly?.includes('Showing it in 3D'));

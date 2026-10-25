@@ -90,7 +90,15 @@ try {
     await b.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y }] });
     for (let i = 1; i <= 8; i++) await b.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + ((to - from) * i) / 8, y }] });
     await b.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await sleep(600);
+    // A quick swipe sets the strip coasting for most of a second, and a tap while it moves only stops
+    // it, as on any phone: wait until it has come to rest
+    let last = -1;
+    for (let k = 0; k < 20; k++) {
+      await sleep(150);
+      const now = await ev(`document.querySelector('[data-resi]').closest('.overflow-x-auto').scrollLeft`);
+      if (now === last) break;
+      last = now;
+    }
   };
   const scrolledBefore = await ev(`document.querySelector('[data-resi]').closest('.overflow-x-auto').scrollLeft`);
   await swipe(360, 220);

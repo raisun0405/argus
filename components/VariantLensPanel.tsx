@@ -15,11 +15,7 @@ interface VariantLensPanelProps {
   status: VariantLensStatus;
   data?: VariantLensData;
   error?: string;
-  collapsed: boolean;
   focused: VariantSite | null;
-  onToggleCollapsed: () => void;
-  onClose: () => void;
-  docked?: boolean; // Inside the inspector column, which supplies the header and the scrolling
   onRetry: () => void;
   onFocus: (site: VariantSite, label: string) => void;
 }
@@ -56,9 +52,8 @@ export const DnaIcon = ({ className }: { className?: string }) => (
  * hotspots for the AlphaMissense pathogenicity colouring.
  */
 const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
-  status, data, error, collapsed: collapsedProp, focused, onToggleCollapsed, onClose, onRetry, onFocus, docked,
+  status, data, error, focused, onRetry, onFocus,
 }) => {
-  const collapsed = docked ? false : collapsedProp;
   const available = data?.proteins.filter(p => p.available) ?? [];
   const multiProtein = available.length > 1;
 
@@ -137,182 +132,152 @@ const VariantLensPanel: React.FC<VariantLensPanelProps> = ({
   const chips = hotspots.length > 0 ? hotspots : sensitive;
 
   return (
-    // Capped to the viewer's height so the header (collapse / exit) stays reachable on short screens
-    <div className={docked ? 'flex flex-col min-w-0' : 'absolute bottom-4 left-4 z-20 w-[300px] max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] flex flex-col bg-canvas/90 backdrop-blur-md border border-line rounded-xl shadow-overlay animate-argus-fade-in pointer-events-auto'}>
-      {/* Header */}
-      <div className={`${docked ? 'hidden' : 'flex'} flex-shrink-0 items-center justify-between gap-2 px-3 py-2 bg-surface/60 rounded-t-xl ${collapsed ? 'rounded-b-xl' : 'border-b border-line'}`}>
-        <div className="flex items-center gap-1.5 min-w-0">
-          <DnaIcon className="w-3.5 h-3.5 text-brand-fg flex-shrink-0" />
-          <span className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.18em]">Variant Lens</span>
-          <span className="text-[10px] font-medium text-ink-dim truncate">· AlphaMissense</span>
-        </div>
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          <button
-            onClick={onToggleCollapsed}
-            className="p-1 rounded text-ink-dim hover:text-ink transition-colors"
-            title={collapsed ? 'Expand' : 'Collapse'}
-            aria-label={collapsed ? 'Expand Variant Lens' : 'Collapse Variant Lens'}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform duration-150 ${collapsed ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1 rounded text-ink-dim hover:text-brand-text transition-colors"
-            title="Exit Variant Lens"
-            aria-label="Exit Variant Lens"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
-      </div>
+    <div className="flex flex-col min-w-0">
+      <div className="space-y-3">
+        {(status === 'loading' || status === 'idle') && (
+          <div className="flex items-center gap-2.5 py-1">
+            <div className="w-4 h-4 border-2 border-brand/25 border-t-brand rounded-full animate-spin flex-shrink-0"></div>
+            <span className="text-xs text-ink-muted">Mapping residues to UniProt and loading AlphaMissense…</span>
+          </div>
+        )}
 
-      {!collapsed && (
-        <div className={docked ? 'space-y-3' : 'p-3 space-y-3 min-h-0 max-h-[42vh] overflow-y-auto'}>
-          {(status === 'loading' || status === 'idle') && (
-            <div className="flex items-center gap-2.5 py-1">
-              <div className="w-4 h-4 border-2 border-brand/25 border-t-brand rounded-full animate-spin flex-shrink-0"></div>
-              <span className="text-xs text-ink-muted">Mapping residues to UniProt and loading AlphaMissense…</span>
-            </div>
-          )}
+        {status === 'error' && (
+          <div className="space-y-2">
+            <p className="text-xs text-bad">Couldn't load variant data{error ? ` (${error})` : ''}.</p>
+            <button
+              onClick={onRetry}
+              className="px-2.5 py-1 rounded-md border border-line bg-input text-[11px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
 
-          {status === 'error' && (
+        {status === 'ready' && data && data.proteins.length === 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-ink">
+              {data.skipped.length > 0 ? 'No human proteins in this entry.' : 'No UniProt mapping found for this entry.'}
+            </p>
+            <p className="text-[11px] leading-snug text-ink-muted">
+              AlphaMissense covers the human proteome only
+              {data.skipped.length > 0 && ` — this structure contains ${data.skipped.slice(0, 3).map(s => s.identifier).join(', ')}`}.
+            </p>
+          </div>
+        )}
+
+        {status === 'ready' && data && data.proteins.length > 0 && (
+          <>
+            {/* Proteins */}
             <div className="space-y-2">
-              <p className="text-xs text-bad">Couldn't load variant data{error ? ` (${error})` : ''}.</p>
-              <button
-                onClick={onRetry}
-                className="px-2.5 py-1 rounded-md border border-line bg-input text-[11px] font-medium text-ink hover:border-brand/40 hover:text-brand-text transition-colors"
-              >
-                Try again
-              </button>
-            </div>
-          )}
-
-          {status === 'ready' && data && data.proteins.length === 0 && (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-ink">
-                {data.skipped.length > 0 ? 'No human proteins in this entry.' : 'No UniProt mapping found for this entry.'}
-              </p>
-              <p className="text-[11px] leading-snug text-ink-muted">
-                AlphaMissense covers the human proteome only
-                {data.skipped.length > 0 && ` — this structure contains ${data.skipped.slice(0, 3).map(s => s.identifier).join(', ')}`}.
-              </p>
-            </div>
-          )}
-
-          {status === 'ready' && data && data.proteins.length > 0 && (
-            <>
-              {/* Proteins */}
-              <div className="space-y-2">
-                {data.proteins.map(p => (
-                  <div key={p.accession} className="flex items-start justify-between gap-3" title={p.proteinName}>
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-semibold text-ink-strong tracking-tight">{p.gene ?? p.identifier}</span>
-                        {p.proteinName && <span className="sr-only">{p.proteinName}</span>}
-                        <a
-                          href={`https://alphafold.ebi.ac.uk/entry/${p.accession}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[10px] font-medium tabular-nums text-ink-dim hover:text-brand-text transition-colors"
-                        >
-                          {p.accession}
-                        </a>
-                      </div>
-                      <p className="text-[10px] text-ink-muted truncate">
-                        Chain{p.chains.length > 1 ? 's' : ''} {p.chains.join(', ')}
-                        {p.available && ` · ${p.mappedResidues} residues`}
-                      </p>
+              {data.proteins.map(p => (
+                <div key={p.accession} className="flex items-start justify-between gap-3" title={p.proteinName}>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xs font-semibold text-ink-strong tracking-tight">{p.gene ?? p.identifier}</span>
+                      {p.proteinName && <span className="sr-only">{p.proteinName}</span>}
+                      <a
+                        href={`https://alphafold.ebi.ac.uk/entry/${p.accession}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-medium tabular-nums text-ink-dim hover:text-brand-text transition-colors"
+                      >
+                        {p.accession}
+                      </a>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      {p.available && p.mappedResidues > 0 ? (
-                        <>
-                          <div className="text-xs font-semibold tabular-nums text-ink">
-                            {Math.round((100 * p.pathogenicResidues) / p.mappedResidues)}%
-                          </div>
-                          <div className="text-[10px] text-ink-dim">Likely harmful</div>
-                        </>
-                      ) : (
-                        <span className="text-[10px] text-ink-dim">{p.available ? 'Not observed' : 'No AM data'}</span>
-                      )}
-                    </div>
+                    <p className="text-[10px] text-ink-muted truncate">
+                      Chain{p.chains.length > 1 ? 's' : ''} {p.chains.join(', ')}
+                      {p.available && ` · ${p.mappedResidues} residues`}
+                    </p>
                   </div>
-                ))}
-              </div>
+                  <div className="text-right flex-shrink-0">
+                    {p.available && p.mappedResidues > 0 ? (
+                      <>
+                        <div className="text-xs font-semibold tabular-nums text-ink">
+                          {Math.round((100 * p.pathogenicResidues) / p.mappedResidues)}%
+                        </div>
+                        <div className="text-[10px] text-ink-dim">Likely harmful</div>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-ink-dim">{p.available ? 'Not observed' : 'No AM data'}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
 
-              {/* Legend */}
+            {/* Legend */}
+            <div>
+              <div className="relative h-2 rounded-full" style={{ background: AM_GRADIENT_CSS }}>
+                <span className="absolute -top-0.5 -bottom-0.5 w-px bg-canvas/80" style={{ left: `${AM_BENIGN_MAX * 100}%` }} />
+                <span className="absolute -top-0.5 -bottom-0.5 w-px bg-canvas/80" style={{ left: `${AM_PATHOGENIC_MIN * 100}%` }} />
+              </div>
+              <div className="flex justify-between mt-1 text-[10px] font-medium text-ink-muted">
+                <span>Benign</span>
+                <span>Ambiguous</span>
+                <span>Pathogenic</span>
+              </div>
+              <p className="mt-1.5 text-[10px] leading-snug text-ink-dim flex items-start gap-1.5">
+                <span className="inline-block w-2 h-2 mt-0.5 rounded-sm flex-shrink-0" style={{ background: AM_NO_DATA_COLOR }} />
+                <span>Mean predicted pathogenicity of all 19 substitutions per residue; grey = no prediction.</span>
+              </p>
+            </div>
+
+            {/* Hotspots */}
+            {chips.length > 0 && (
               <div>
-                <div className="relative h-2 rounded-full" style={{ background: AM_GRADIENT_CSS }}>
-                  <span className="absolute -top-0.5 -bottom-0.5 w-px bg-canvas/80" style={{ left: `${AM_BENIGN_MAX * 100}%` }} />
-                  <span className="absolute -top-0.5 -bottom-0.5 w-px bg-canvas/80" style={{ left: `${AM_PATHOGENIC_MIN * 100}%` }} />
+                <p className="text-[11px] font-medium text-ink-muted mb-1.5">
+                  {hotspots.length > 0 ? 'Known disease variants' : 'Most sensitive positions'}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {chips.map(h => {
+                    const isFocused = sameSite(focused, h.site);
+                    return (
+                      <button
+                        key={h.key}
+                        onClick={() => h.site && onFocus(h.site, h.focusLabel)}
+                        disabled={!h.site}
+                        title={h.title}
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 touch:px-2.5 touch:py-1.5 rounded-md border text-[11px] touch:text-[12.5px] font-medium tabular-nums transition-colors disabled:opacity-50 disabled:cursor-default ${
+                          isFocused
+                            ? 'border-ink/50 bg-chip text-ink-strong'
+                            : 'border-line bg-input text-ink hover:border-brand/40 hover:text-brand-text'
+                        }`}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ background: h.score !== undefined ? amColor(h.score) : AM_NO_DATA_COLOR }}
+                        />
+                        {h.label}
+                        {h.extra > 0 && <span className="text-[10px] text-ink-dim">+{h.extra}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="flex justify-between mt-1 text-[10px] font-medium text-ink-muted">
-                  <span>Benign</span>
-                  <span>Ambiguous</span>
-                  <span>Pathogenic</span>
-                </div>
-                <p className="mt-1.5 text-[10px] leading-snug text-ink-dim flex items-start gap-1.5">
-                  <span className="inline-block w-2 h-2 mt-0.5 rounded-sm flex-shrink-0" style={{ background: AM_NO_DATA_COLOR }} />
-                  <span>Mean predicted pathogenicity of all 19 substitutions per residue; grey = no prediction.</span>
+                <p className="mt-1.5 text-[10px] leading-snug text-ink-dim">
+                  {hotspots.length > 0
+                    ? 'From UniProt. Dot = AlphaMissense score of that substitution.'
+                    : 'Highest mean AlphaMissense scores in this structure.'}
+                  {' '}<span className="touch:hidden">Click</span><span className="hidden touch:inline">Tap</span> one to focus it.
                 </p>
               </div>
+            )}
 
-              {/* Hotspots */}
-              {chips.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-medium text-ink-muted mb-1.5">
-                    {hotspots.length > 0 ? 'Known disease variants' : 'Most sensitive positions'}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {chips.map(h => {
-                      const isFocused = sameSite(focused, h.site);
-                      return (
-                        <button
-                          key={h.key}
-                          onClick={() => h.site && onFocus(h.site, h.focusLabel)}
-                          disabled={!h.site}
-                          title={h.title}
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 touch:px-2.5 touch:py-1.5 rounded-md border text-[11px] touch:text-[12.5px] font-medium tabular-nums transition-colors disabled:opacity-50 disabled:cursor-default ${
-                            isFocused
-                              ? 'border-ink/50 bg-chip text-ink-strong'
-                              : 'border-line bg-input text-ink hover:border-brand/40 hover:text-brand-text'
-                          }`}
-                        >
-                          <span
-                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ background: h.score !== undefined ? amColor(h.score) : AM_NO_DATA_COLOR }}
-                          />
-                          {h.label}
-                          {h.extra > 0 && <span className="text-[10px] text-ink-dim">+{h.extra}</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-1.5 text-[10px] leading-snug text-ink-dim">
-                    {hotspots.length > 0
-                      ? 'From UniProt. Dot = AlphaMissense score of that substitution.'
-                      : 'Highest mean AlphaMissense scores in this structure.'}
-                    {' '}<span className="touch:hidden">Click</span><span className="hidden touch:inline">Tap</span> one to focus it.
-                  </p>
-                </div>
-              )}
-
-              {mismatchCount > 0 && (
-                <p className="text-[10px] leading-snug text-warn">
-                  {mismatchCount} residue{mismatchCount > 1 ? 's' : ''} in this structure differ{mismatchCount > 1 ? '' : 's'} from the UniProt
-                  sequence (engineered or disease mutant) — <span className="touch:hidden">hover over</span><span className="hidden touch:inline">tap</span> a residue in 3D to see which.
-                </p>
-              )}
-
-              {/* Attribution & caveat */}
-              <p className="pt-2 border-t border-line text-[10px] leading-snug text-ink-dim">
-                Predictions, not diagnoses — not for clinical use. AlphaMissense (Cheng et al., Science 2023) via{' '}
-                <a href="https://alphafold.ebi.ac.uk/" target="_blank" rel="noreferrer" className="underline decoration-line-2 hover:text-brand-text">AlphaFold DB</a>
-                {' '}· CC BY 4.0 · variants from UniProt · mapping by PDBe SIFTS.
+            {mismatchCount > 0 && (
+              <p className="text-[10px] leading-snug text-warn">
+                {mismatchCount} residue{mismatchCount > 1 ? 's' : ''} in this structure differ{mismatchCount > 1 ? '' : 's'} from the UniProt
+                sequence (engineered or disease mutant) — <span className="touch:hidden">hover over</span><span className="hidden touch:inline">tap</span> a residue in 3D to see which.
               </p>
-            </>
-          )}
-        </div>
-      )}
+            )}
+
+            {/* Attribution & caveat */}
+            <p className="pt-2 border-t border-line text-[10px] leading-snug text-ink-dim">
+              Predictions, not diagnoses — not for clinical use. AlphaMissense (Cheng et al., Science 2023) via{' '}
+              <a href="https://alphafold.ebi.ac.uk/" target="_blank" rel="noreferrer" className="underline decoration-line-2 hover:text-brand-text">AlphaFold DB</a>
+              {' '}· CC BY 4.0 · variants from UniProt · mapping by PDBe SIFTS.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 };
