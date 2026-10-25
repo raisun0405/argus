@@ -273,5 +273,49 @@ console.log('\n[9] the investigate call has a time limit, and Stop still ends it
   }
 }
 
+console.log('\n[10] the write-up streams its reply: a failure comes inside the 200, and is retried once, quicker');
+{
+  const { done: steps } = await run([{ tool: 'variants' }, { tool: 'pockets' }]);
+  const realFetch = globalThis.fetch;
+  const realTimeout = AbortSignal.timeout;
+  const sent = [];
+  const limits = [];
+  let replies = [];
+  globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return replies.shift()(); };
+  AbortSignal.timeout = ms => { limits.push(ms); return realTimeout.call(AbortSignal, ms); };
+  // As the server sends it: spaces while the AI works, then the JSON
+  const streamedReply = (json) => () => new Response(`   ${typeof json === 'string' ? json : JSON.stringify(json)}`, { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const WRITTEN = { title: 'Pocket 1', answer: 'Pocket 1 is 81% likely to bind a ligand [3].', marks: [] };
+  const draft = (onWait) => I.requestDraft('Is there a pocket?', { id: '9TST', title: 'Test' }, steps, onWait);
+  try {
+    replies = [streamedReply({ error: 'The AI took too long to answer', status: 504 }), streamedReply(WRITTEN)];
+    let got = await draft();
+    check('a 504 inside a streamed 200: tried once more, asking for a quicker answer, and that write-up used',
+      sent.length === 2 && sent[0].stage === 'write' && sent[0].retry === undefined && sent[1].retry === true && got?.answer === WRITTEN.answer,
+      JSON.stringify({ retries: sent.map(s => s.retry ?? null), answer: got?.answer }));
+    check('...each of its calls may take 90 s', limits.length === 2 && limits.every(ms => ms === 90_000), limits.join(', '));
+    limits.length = 0;
+    replies = [() => new Response(JSON.stringify({ structure: '9TST', title: 'T', steps: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })];
+    await I.requestPlan('Is there a pocket?', { pdbId: '9TST', title: 'Test' });
+    check('...while the plan, which doesn\'t stream, keeps 45 s', limits.length === 1 && limits[0] === 45_000, limits.join(', '));
+    sent.length = 0;
+    replies = [streamedReply('{"title": "Pocket 1", "ans'), streamedReply(WRITTEN)];
+    got = await draft();
+    check('a reply cut short counts as failed: tried once more', sent.length === 2 && sent[1].retry === true && got?.answer === WRITTEN.answer, `${sent.length} sent`);
+    sent.length = 0;
+    replies = [streamedReply({ error: 'Model returned an unusable write-up', status: 502 }), streamedReply({ error: 'Model returned an unusable write-up', status: 502 })];
+    const failed = await draft().then(() => 'answered', e => e?.status);
+    check('failing twice: the error carries the status from the body, so the card falls back', failed === 502 && sent.length === 2, String(failed));
+    sent.length = 0;
+    let waited = null;
+    replies = [streamedReply({ error: 'The AI is busy right now (rate limit)', status: 429, retryAfter: 1 }), streamedReply(WRITTEN)];
+    got = await draft(s => { waited = s; });
+    check('a rate limit inside a streamed 200: waits as long as it says, then once more', waited === 1 && sent.length === 2 && got?.answer === WRITTEN.answer, `waited ${waited}, ${sent.length} sent`);
+  } finally {
+    globalThis.fetch = realFetch;
+    AbortSignal.timeout = realTimeout;
+  }
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILED`}`);
 process.exit(failures ? 1 : 0);

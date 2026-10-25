@@ -7,7 +7,8 @@
 // written from those results alone. Stage "check": the conclusion's sentences and the same results in,
 // each sentence kept, cut down to what its sources state, or dropped. Plan, write and check are NVIDIA
 // Nemotron on Nebius Token Factory; the keys (NEBIUS_API_KEY, TAVILY_API_KEY) stay here, as in
-// /api/analyze.
+// /api/analyze. Write and check answer at once and stream, as /api/cofold does: Nemotron can take
+// longer over them than the 25 s an Edge function has to start answering.
 
 import { ASKS_LITERATURE, LITERATURE_SITES, MAX_STEPS, canonicalStructureId, normalizeCheck, normalizePlan, normalizeSources, normalizeWrite, withRequiredSteps } from '../services/investigationPlan';
 import { readJsonBody } from '../services/requestBody';
@@ -23,7 +24,14 @@ const LLM_ENDPOINT = 'https://api.tokenfactory.nebius.com/v1/chat/completions';
 const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
 // Vercel Edge functions must start responding within 25 s: leave room for the UniProt lookup
 const LLM_TIMEOUT_MS = 18000;
-const LONG_TIMEOUT_MS = 23000; // The write-up and the check look nothing up after the model answers
+// The write-up and the check stream (Edge streams may run 300 s), so they can wait longer: a write-up
+// with papers to quote has taken Nemotron over 23 s. The browser's one retry asks for less reasoning
+const WRITE_TIMEOUT_MS = 60_000;
+const RETRY_TIMEOUT_MS = 40_000;
+const KEEPALIVE_MS = 5000;
+const longCall = (retry: boolean) => (retry
+  ? { maxTokens: 3072, reasoningEffort: 'low' as const, timeoutMs: RETRY_TIMEOUT_MS }
+  : { maxTokens: 3072, reasoningEffort: 'medium' as const, timeoutMs: WRITE_TIMEOUT_MS });
 const UNIPROT_TIMEOUT_MS = 3000;
 const RCSB_GRAPHQL = 'https://data.rcsb.org/graphql';
 const RCSB_SEARCH = 'https://search.rcsb.org/rcsbsearch/v2/query';
@@ -330,6 +338,45 @@ function jsonResponse(body: unknown, status: number, headers: Record<string, str
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 }
 
+/**
+ * The work's reply, started at once and streamed: a space now and every few seconds (JSON allows
+ * leading whitespace), then its JSON. A reply that started can't change its status, so a failure comes
+ * as { error, status } with the status it would have had (and retryAfter for a rate limit), as from
+ * /api/cofold.
+ */
+function streamed(work: Promise<Response>): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (chunk: string) => {
+        try { controller.enqueue(encoder.encode(chunk)); } catch { /* the client went away */ }
+      };
+      send(' ');
+      const keepAlive = setInterval(() => send(' '), KEEPALIVE_MS);
+      let answer: string;
+      try {
+        const response = await work;
+        const text = await response.text();
+        if (response.ok) answer = text;
+        else {
+          let error = 'unknown';
+          try { error = String(JSON.parse(text).error ?? error); } catch { /* not JSON */ }
+          const retryAfter = Number(response.headers.get('retry-after'));
+          answer = JSON.stringify({ error, status: response.status, ...(retryAfter > 0 ? { retryAfter } : {}) });
+        }
+      } catch (e) {
+        console.error('[investigate]', e);
+        answer = JSON.stringify({ error: 'The AI call failed unexpectedly', status: 502 });
+      } finally {
+        clearInterval(keepAlive);
+      }
+      send(answer);
+      try { controller.close(); } catch { /* already closed */ }
+    },
+  });
+  return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+}
+
 /** The model's JSON object, or the error response to send instead. */
 async function askModel(system: string, user: string, options: { maxTokens: number; reasoningEffort: 'low' | 'medium'; timeoutMs?: number }): Promise<{ data: any } | { error: Response }> {
   const apiKey = process.env.NEBIUS_API_KEY;
@@ -506,16 +553,18 @@ export default async function handler(req: Request): Promise<Response> {
     const structureId = field(body.structure?.id, 40);
     const structureTitle = field(body.structure?.title, 200);
 
-    const result = await askModel(
-      WRITE_PROMPT,
-      `QUESTION: "${question}"\nSTRUCTURE: ${structureId}${structureTitle ? ` (${structureTitle})` : ''}\n\nRESULTS:\n${findings}\n\nSETS (name: what it holds, residue count):\n${
-        sets.length ? sets.map((s: { name: string; label: string; count: number }) => `- ${s.name}: ${s.label} (${s.count})`).join('\n') : '(none)'
-      }\n\nOutput the JSON now.`,
-      { maxTokens: 3072, reasoningEffort: 'medium', timeoutMs: LONG_TIMEOUT_MS },
-    );
-    if ('error' in result) return result.error;
-    const writeUp = normalizeWrite(result.data, sets.map((s: { name: string }) => s.name), steps);
-    return writeUp ? jsonResponse(writeUp, 200) : jsonResponse({ error: 'Model returned an unusable write-up' }, 502);
+    return streamed((async () => {
+      const result = await askModel(
+        WRITE_PROMPT,
+        `QUESTION: "${question}"\nSTRUCTURE: ${structureId}${structureTitle ? ` (${structureTitle})` : ''}\n\nRESULTS:\n${findings}\n\nSETS (name: what it holds, residue count):\n${
+          sets.length ? sets.map((s: { name: string; label: string; count: number }) => `- ${s.name}: ${s.label} (${s.count})`).join('\n') : '(none)'
+        }\n\nOutput the JSON now.`,
+        longCall(body.retry === true),
+      );
+      if ('error' in result) return result.error;
+      const writeUp = normalizeWrite(result.data, sets.map((s: { name: string }) => s.name), steps);
+      return writeUp ? jsonResponse(writeUp, 200) : jsonResponse({ error: 'Model returned an unusable write-up' }, 502);
+    })());
   }
 
   if (body.stage === 'check') {
@@ -533,15 +582,17 @@ export default async function handler(req: Request): Promise<Response> {
     if (!results || !sentences.length) return jsonResponse({ error: 'Missing "results" or "sentences"' }, 400);
     const uncited = sentences.filter(s => !/\[\d+[a-d]?\]/.test(s.text)).map(s => s.id);
     const missing = sentences.filter(s => s.missing.length).map(s => `${s.id}: ${s.missing.join(', ')}`);
-    const result = await askModel(
-      CHECK_PROMPT,
-      `QUESTION: "${question}"\n\nRESULTS:\n${results}\n\nSENTENCES:\n${
-        sentences.map(s => `${s.id}. ${s.text}`).join('\n')
-      }\n\nUNCITED: ${uncited.length ? uncited.join(', ') : 'none'}\n\nNOT IN WHAT THEY CITE:${missing.length ? `\n${missing.join('\n')}` : ' none'}\n\nOutput the JSON now.`,
-      { maxTokens: 3072, reasoningEffort: 'medium', timeoutMs: LONG_TIMEOUT_MS },
-    );
-    if ('error' in result) return result.error;
-    return jsonResponse({ verdicts: normalizeCheck(result.data, sentences) }, 200);
+    return streamed((async () => {
+      const result = await askModel(
+        CHECK_PROMPT,
+        `QUESTION: "${question}"\n\nRESULTS:\n${results}\n\nSENTENCES:\n${
+          sentences.map(s => `${s.id}. ${s.text}`).join('\n')
+        }\n\nUNCITED: ${uncited.length ? uncited.join(', ') : 'none'}\n\nNOT IN WHAT THEY CITE:${missing.length ? `\n${missing.join('\n')}` : ' none'}\n\nOutput the JSON now.`,
+        longCall(body.retry === true),
+      );
+      if ('error' in result) return result.error;
+      return jsonResponse({ verdicts: normalizeCheck(result.data, sentences) }, 200);
+    })());
   }
 
   return jsonResponse({ error: 'Unknown "stage" (expected "plan", "search", "write" or "check")' }, 400);

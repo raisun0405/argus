@@ -597,29 +597,47 @@ const MAX_RATE_LIMIT_WAIT_S = 20;
 // The function answers within about 25 s (Vercel's limit for starting a reply), so a call still waiting
 // after this has lost its connection: the investigation goes on without it (fallback plan or write-up)
 const CALL_TIMEOUT_MS = 45_000;
+// The write-up and the check start their reply at once and stream it while the AI works (up to a
+// minute), so they are given longer
+const STREAMED_STAGES = new Set(['write', 'check']);
+const STREAMED_CALL_TIMEOUT_MS = 90_000;
+
+/** How a call went. A streamed reply has started as a 200, so its body says how it went: { error, status }. */
+interface Outcome { status: number; data: any; retryAfter: number; firewall: boolean }
 
 // Stop on the investigation's card aborts the call itself, and the wait before its retry
-const post = async (body: object, onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal): Promise<unknown> => {
-  const send = () => fetch('/api/investigate', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: timeoutSignal(CALL_TIMEOUT_MS, signal),
-  });
-  let response = await send();
-  // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one more try
-  if (response.status === 502 || response.status === 504) response = await send();
+const post = async (body: { stage: string; [key: string]: unknown }, onRateLimitWait?: (seconds: number) => void, signal?: AbortSignal): Promise<unknown> => {
+  const send = async (retry = false): Promise<Outcome> => {
+    const response = await fetch('/api/investigate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(retry ? { ...body, retry } : body),
+      signal: timeoutSignal(STREAMED_STAGES.has(body.stage) ? STREAMED_CALL_TIMEOUT_MS : CALL_TIMEOUT_MS, signal),
+    });
+    if (stoppedByFirewall(response)) return { status: response.status, data: null, retryAfter: NaN, firewall: true };
+    const data = await response.json().catch((e: unknown) => {
+      if (e instanceof Error && (e.name === 'AbortError' || e.name === 'TimeoutError')) throw e; // Stop, or the time limit
+      return null;
+    });
+    const failed = response.ok && typeof data?.error === 'string' && typeof data?.status === 'number';
+    // A reply cut short (or garbled) isn't JSON at all: as good as a bad gateway
+    const status = failed ? data.status : response.ok && data === null ? 502 : response.status;
+    return { status, data, retryAfter: Number(failed ? data.retryAfter : response.headers.get('retry-after')), firewall: false };
+  };
+  let outcome = await send();
+  // The AI answered something unusable (malformed JSON, say), couldn't be reached or took too long: one
+  // more try, on which the write-up and the check ask for a quicker answer
+  if (outcome.status === 502 || outcome.status === 504) outcome = await send(true);
   // The AI is rate-limited: wait as long as it suggests, within reason, and try once more
-  if (response.status === 429 && !stoppedByFirewall(response)) {
-    const suggested = Number(response.headers.get('retry-after'));
-    const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(suggested) && suggested > 0 ? Math.ceil(suggested) : 10);
+  if (outcome.status === 429 && !outcome.firewall) {
+    const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Number.isFinite(outcome.retryAfter) && outcome.retryAfter > 0 ? Math.ceil(outcome.retryAfter) : 10);
     onRateLimitWait?.(wait);
     await pause(wait * 1000, signal);
-    response = await send();
+    outcome = await send();
   }
-  if (stoppedByFirewall(response)) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: response.status, firewall: true });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'unknown' }));
-    throw Object.assign(new Error(`Investigate API error ${response.status}: ${err?.error || 'unknown'}`), { status: response.status });
+  if (outcome.firewall) throw Object.assign(new Error(FIREWALL_MESSAGE), { status: outcome.status, firewall: true });
+  if (outcome.status < 200 || outcome.status >= 300) {
+    throw Object.assign(new Error(`Investigate API error ${outcome.status}: ${outcome.data?.error || 'unknown'}`), { status: outcome.status });
   }
-  return response.json();
+  return outcome.data;
 };
 
 /** The AI's plan for a question about the structure on screen (null when it's unusable). */

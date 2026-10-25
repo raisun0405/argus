@@ -33,8 +33,9 @@ server-side Edge Functions (the key never reaches the browser):
 
 Both ask for JSON (`response_format`). Answers and Investigate's plan use `reasoning_effort: "low"`:
 Nemotron reasons first, apart from the answer, and briefly, so they arrive in a few seconds. Investigate's
-write-up and its check pass use `"medium"`, with a longer timeout, since a cited conclusion has to be
-right more than it has to be quick. `NEMOTRON_MODEL` switches to another
+write-up and its check pass use `"medium"`, since a cited conclusion has to be right more than it has to
+be quick. Their replies stream, so Nemotron has up to a minute for them (an Edge Function must start
+answering within 25 s), and the one retry after a failure asks for `"low"`. `NEMOTRON_MODEL` switches to another
 Token Factory model without a code change. Nemotron 3 Super was chosen over Nemotron 3 Ultra in a side-by-side
 test on Argus's own questions, scored by the app's answer checker: fewer wrong residues and ligands
 (3 against 12 over eight questions), quicker answers, and a third of the price.
@@ -204,7 +205,7 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 ├── docs/                           # The screenshots and the diagram in this README
 ├── api/
 │   ├── analyze.ts                  # Edge Function: Nemotron (Token Factory) call, prompt, validation, limits
-│   ├── investigate.ts              # Edge Function: Investigate mode's plan, literature search, write-up and check
+│   ├── investigate.ts              # Edge Function: Investigate mode's plan, literature search, write-up and check (streamed)
 │   ├── cofold.ts                   # Edge Function: Boltz-2 input from RCSB, NVIDIA call, streaming, limits
 │   ├── saved.ts                    # Edge Function: shared results kept in Cloudflare R2 behind short links
 │   ├── report.ts                   # Edge Function: error reports from browsers, logged and emailed
@@ -290,7 +291,7 @@ The Edge Functions are the only places the keys live. They enforce:
 - **Origin check:** browsers can call the functions only from the app's own pages, so other websites can't spend its AI quota through their visitors. It doesn't stop a script, which can send any Origin it likes. For that, turn on Vercel's Bot Protection (the project's Firewall → Bot Management → Bot Protection, in Challenge mode; every plan has it): clients that aren't browsers are turned away before they reach the functions, visitors' browsers pass without seeing it, and if it ever stops a visitor's request the app asks them to reload the page.
 - **Rate limits:** 12 questions a minute per visitor; 16 Investigate requests a minute (about four investigations, each a plan, a literature search, a write-up and a check); 12 co-folds per 10 minutes and 60 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
 - **Input limits:** questions up to 2,000 characters (1,000 for an investigation, whose step results are capped at 7,000); the context and facts the browser sends are capped and sanitised. Co-fold takes up to 1,200 residues, 8 chains and a 60-residue pocket, PDB codes and SMILES only, and builds its own requests from them.
-- **Timeouts and clean errors:** 18 seconds for an answer and for Investigate's plan, 23 for its write-up and check, and 4 minutes for a prediction; upstream error details are logged, never returned.
+- **Timeouts and clean errors:** 18 seconds for an answer and for Investigate's plan, a minute for its write-up and check (streamed, like a prediction), and 4 minutes for a prediction; upstream error details are logged, never returned.
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.
 - **Error reports:** when the app's own code fails in a browser, a short report goes to `api/report.ts`: the error's message, where in the code, the page's path (not a share link's content) and the build, and nothing else from the page. It is logged and, when set up, emailed to you: each kind of error once, then at most every 6 hours. Ten reports a minute per visitor, and at most 2 alert emails an hour for the whole site, however many server instances share the work: Resend keeps that count, since each email goes out under an idempotency key for its hour and slot. Addresses of other sites in a report are removed from the email.
 - **Quality:** `api/quality.ts` reads only the start of an entry's official validation report on files.wwpdb.org (browsers can't fetch it there) and returns its summary: PDB IDs only, the same origin check, 30 requests a minute per visitor. The app asks by GET (`/api/quality?id=4hhb`), so Vercel's CDN keeps each answer for a day and the browser for an hour (for an entry with no report yet, an hour and 10 minutes); refusals and failures are never cached.
