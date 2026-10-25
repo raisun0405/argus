@@ -9,7 +9,7 @@
 // Nemotron on Nebius Token Factory; the keys (NEBIUS_API_KEY, TAVILY_API_KEY) stay here, as in
 // /api/analyze.
 
-import { ASKS_LITERATURE, LITERATURE_SITES, MAX_STEPS, canonicalStructureId, normalizeCheck, normalizePlan, normalizeSources, normalizeWrite } from '../services/investigationPlan';
+import { ASKS_LITERATURE, LITERATURE_SITES, MAX_STEPS, canonicalStructureId, normalizeCheck, normalizePlan, normalizeSources, normalizeWrite, withRequiredSteps } from '../services/investigationPlan';
 import { readJsonBody } from '../services/requestBody';
 
 export const config = { runtime: 'edge' };
@@ -479,6 +479,8 @@ export default async function handler(req: Request): Promise<Response> {
       if (!Array.isArray(data.steps)) data.steps = [];
       if (!data.steps.some((s: any) => s?.tool === 'literature')) data.steps.push({ tool: 'literature', why: 'What published research reports' });
     }
+    // A question about mutations always looks at them (and at the pocket it asks about), first
+    data.steps = withRequiredSteps(Array.isArray(data.steps) ? data.steps : [], question);
     const plan = normalizePlan(data, pdbId, question);
     if (plan && !literature) plan.steps = plan.steps.filter(s => s.tool !== 'literature');
     return plan ? jsonResponse(plan, 200) : jsonResponse({ error: 'Model returned an unusable plan' }, 502);

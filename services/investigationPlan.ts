@@ -177,6 +177,28 @@ export const normalizePlan = (raw: unknown, current: string, question = ''): Inv
 
 /** A question that asks what published research says (it gets a literature step even when the model's plan leaves one out). */
 export const ASKS_LITERATURE = /literature|papers?\b|\bstud(?:y|ies)\b|research|publish|publications?|trials?\b|approved|\bfda\b|reported|known about|resistan/i;
+/** A question about mutations, and one about where a molecule could bind */
+const ASKS_VARIANTS = /mutat|variant|disease|pathogen|cancer|clinical|missense|\bsnps?\b|harmful/i;
+const ASKS_POCKETS = /pocket|druggab|cavit|binding site|where .{0,40}bind|dock/i;
+
+/**
+ * The model's planned steps, with what the question's own words make essential put first (so the
+ * step limit can't drop them): a question about mutations looks at them, and when it also asks about
+ * pockets, at the pockets and whether the harmful positions line the best one. The model was seen
+ * planning "Are the disease mutations of KRAS near a druggable pocket?" with no variants step at all.
+ */
+export const withRequiredSteps = (steps: unknown[], question: string): unknown[] => {
+  if (!ASKS_VARIANTS.test(question)) return steps;
+  const has = (tool: string) => steps.some((s: any) => s?.tool === tool);
+  const first: PlanStep[] = [];
+  if (!has('variants')) first.push({ tool: 'variants', why: 'Which positions are likely harmful when mutated' });
+  if (ASKS_POCKETS.test(question)) {
+    if (!has('pockets')) first.push({ tool: 'pockets', why: 'Where a small molecule could bind' });
+    const related = steps.some((s: any) => s?.tool === 'relate' && (s.a === 'harmful' || s.b === 'harmful'));
+    if (!related) first.push({ tool: 'relate', why: 'Whether harmful positions line the best pocket', a: 'harmful', b: 'pocket1' });
+  }
+  return [...first, ...steps];
+};
 
 /**
  * A plan made without the AI (it was busy or answered nonsense): the tools the question's words
@@ -184,8 +206,8 @@ export const ASKS_LITERATURE = /literature|papers?\b|\bstud(?:y|ies)\b|research|
  */
 export const fallbackPlan = (question: string, current: string): InvestigationPlan => {
   const q = question.toLowerCase();
-  const variants = /mutat|variant|disease|pathogen|cancer|clinical|missense|\bsnps?\b|harmful/.test(q);
-  const pockets = /pocket|druggab|cavit|binding site|where .{0,40}bind|dock/.test(q);
+  const variants = ASKS_VARIANTS.test(q);
+  const pockets = ASKS_POCKETS.test(q);
   const ligands = /ligand|bound|inhibitor|\bdrugs?\b|substrate|cofactor|heme|haem|contact|hydrogen bond|h-?bonds?|salt bridge|\bhold|\bheld\b/.test(q);
   const partners = /partner|interacts? with|interaction network|complex with|other proteins?|string/.test(q);
   const similar = /similar|homolog|fold|related|evolution|resembl|looks? like|family/.test(q);

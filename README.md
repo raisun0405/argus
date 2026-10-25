@@ -10,9 +10,11 @@ or predict how a drug binds.
 
 Answers and investigations run on **NVIDIA Nemotron** through **Nebius Token Factory**.
 
+**[Try it at argus.raisun.dev](https://argus.raisun.dev)** · free, no sign-up, works on a phone
+
 <sub>Named after Argus, the giant of Greek myth with a hundred eyes who saw everything.</sub>
 
-![Argus showing HIV-1 protease bound to the inhibitor XK263: the chat on the left with the answer and a quick check, the structure coloured by Pocket Radar's predicted pockets with the catalytic Asp25 selected, the sequence above it and the inspector listing everything within 5 Å](docs/screenshot.jpg)
+![Argus investigating which pathogenic KRAS variants sit near a predicted druggable pocket: the chat on the left with the cited conclusion, its sentences checked against the step results and the four steps it ran; KRAS in the middle, coloured by AlphaMissense pathogenicity; Variant Lens on the right with the known disease variants](docs/screenshot.jpg)
 
 </div>
 
@@ -29,8 +31,10 @@ server-side Edge Functions (the key never reaches the browser):
 | [`api/analyze.ts`](api/analyze.ts) | Answers a question about a protein: picks the PDB entry or AlphaFold model, writes the explanation, marks the residues it talks about, adds quizzes and guided tours, and asks the viewer for actions (shapes, colours, tools). Grounded in facts the app looks up first (UniProt, PDBe, predicted pockets), and checked against the structure file afterwards. |
 | [`api/investigate.ts`](api/investigate.ts) | **Investigate mode**, the agentic part: Nemotron plans which of the app's tools to run (annotations, AlphaMissense variants, P2Rank pockets, ligand contacts, STRING partners, Foldseek, a Tavily search of published research, distance relations between them), the tools run, and Nemotron writes the conclusion from their numbered results alone, citing each step. A paper appears only as a quote matched word for word to it, and a check pass reviews every other sentence. |
 
-Both ask for JSON (`response_format`), with `reasoning_effort: "low"`: Nemotron reasons first, apart
-from the answer, and briefly, so answers arrive in a few seconds. `NEMOTRON_MODEL` switches to another
+Both ask for JSON (`response_format`). Answers and Investigate's plan use `reasoning_effort: "low"`:
+Nemotron reasons first, apart from the answer, and briefly, so they arrive in a few seconds. Investigate's
+write-up and its check pass use `"medium"`, with a longer timeout, since a cited conclusion has to be
+right more than it has to be quick. `NEMOTRON_MODEL` switches to another
 Token Factory model without a code change. Nemotron 3 Super was chosen over Nemotron 3 Ultra in a side-by-side
 test on Argus's own questions, scored by the app's answer checker: fewer wrong residues and ligands
 (3 against 12 over eight questions), quicker answers, and a third of the price.
@@ -53,11 +57,13 @@ takes you further.
 - **Ask the chat to do it.** Anything the controls do can be typed: *"surface, coloured by chain"*, *"hide waters"*, *"opacity 40"*, *"open pockets"*, *"select A:25"*, *"show only chain A"*, *"spin"*, *"open 4HHB"*, *"download the structure"*, *"share this"*, *"paper theme"*, *"play the tour"*, and while a tour plays, *"pause"* or *"next"*. Plain requests like these run at once without the AI; an answer can also change the view or open a tool when the question calls for it (*"show me hemoglobin as a surface"*). Under each request the chat lists what actually changed, and why anything couldn't be done, including what Argus doesn't do (*"colour the zinc red"*: no colours of your own choosing yet). A question about the residues selected in 3D (*"what is this residue?"*) is about them.
 - **Voice input** in the browser.
 
+![An answer about trypsin's catalytic residues with its "What was checked" details open: the protein name matches the entry, the three marked residues are in it, and the three amino acids the text names are those amino acids there; the structure in the middle with the catalytic triad marked](docs/checked-answer.jpg)
+
 ### Explore structures
-- **Any of the 200,000+ PDB entries**, as cartoon, wireframe, spacefill or surface, coloured by element, chain, rainbow, hydrophobicity or residue type.
+- **Any of the 250,000+ PDB entries**, as cartoon, wireframe, spacefill or surface, coloured by element, chain, rainbow, hydrophobicity or residue type.
 - **AlphaFold models.** Switch an experimental entry to its full-length AlphaFold DB prediction, coloured by confidence (pLDDT), with highlights carried across.
 - **Confidence map.** For an AlphaFold model, the toolbar's Confidence map shows AlphaFold's predicted aligned error: how sure it is about where each part sits relative to every other part, in AlphaFold DB's own colours. Two parts can each be well predicted while their arrangement is a guess, and this is where that shows. Drag across the map, or pick a part from the panel's list, and those stretches light up in 3D, one blue and one orange. The panel lists the confidently placed parts and how sure AlphaFold is about the way they are arranged, and questions about the model get the same facts. The map matches AlphaFold DB's own picture of it (correlation 0.9995 on a 393-residue model). Also from the chat: `confidence map`.
-- **Coverage.** An experimental entry often holds only part of its protein: a domain, a fragment, a mature chain. The inspector's Coverage section shows which part, counted from the residues actually resolved in the file and matched to the protein's own numbering (SIFTS): for p53 in 1TUP, residues 94–289 of 393 (49%), with what is missing and a button to open the AlphaFold model of the whole protein. On an AlphaFold model it shows which residues any PDB entry has resolved and which are known only from the prediction (from PDBe-KB; for p53, residues 63–87 had not been resolved in any of its 321 entries as of October 2026); pick a stretch to select it. Questions get the same facts, so answers don't describe parts that aren't there.
+- **Coverage.** An experimental entry often holds only part of its protein: a domain, a fragment, a mature chain. The inspector's Coverage section shows which part, counted from the residues actually resolved in the file and matched to the protein's own numbering (SIFTS): for p53 in 1TUP, residues 94–289 of 393 (49%), with what is missing and a button to open the AlphaFold model of the whole protein. On an AlphaFold model it shows which residues any PDB entry has resolved and which are known only from the prediction (from PDBe-KB; for p53, residues 63–68 and 70–87 had not been resolved in any of its 321 entries as of late October 2026); pick a stretch to select it. Questions get the same facts, so answers don't describe parts that aren't there.
 - **Quality.** How far to trust an experimental structure, from its official wwPDB validation report: the method, resolution and R-free, then the clashscore, Ramachandran and side-chain outliers and (for X-ray) the fit to the density, each with its percentile ranks against the archive (0 to 100, higher is better) as the report gives them: among all X-ray structures and those of similar resolution, or among all structures and those of the same method. Read from the report itself rather than from PDBe's copy, which serves an older validation run. Questions get the same numbers; the full report is a click away on RCSB.
 - **AlphaFill ligands.** AlphaFold models have no ligands, so Argus adds the cofactors, metals and other ligands AlphaFill transplants from related PDB entries. Only confident transplants that the model actually holds are shown, and each is fitted onto its own binding site.
 - **Fold any sequence.** Paste a protein sequence or FASTA (up to 400 residues), or add a FASTA file from the + menu, and ESMFold predicts its structure in seconds.
@@ -92,14 +98,18 @@ structure become two tabs that keep their state as you switch.
 
 ## How the pieces fit
 
+![How Argus answers and checks itself. Ask: facts first, then Nemotron 3 Super on Nebius Token Factory, then checks in code, then the answer in 3D. Investigate: Nemotron plans up to six steps, the tools run in the browser, then Nemotron writes the cited answer and checks it](docs/how-it-works.jpg)
+
 The app is a static React site. The science databases are called directly from the browser
 (all of them are free, keyless and CORS-enabled), so their data doesn't pass through an Argus
-server; only Co-fold reads RCSB on the server, to build its input. The server code is three Vercel
-Edge Functions, the only places keys live:
-[`api/analyze.ts`](api/analyze.ts) talks to the LLM, [`api/investigate.ts`](api/investigate.ts) makes
-Investigate mode's two LLM calls (the plan, then the write-up; the browser runs the steps in between)
-and its literature search,
-and [`api/cofold.ts`](api/cofold.ts) runs Boltz-2 on NVIDIA's API. Co-fold builds its input on the server: each chain's sequence from RCSB,
+server; only Co-fold (RCSB) and Quality (wwPDB's validation reports) read on the server. The server
+code is six Vercel Edge Functions, and five of them hold the only keys:
+[`api/analyze.ts`](api/analyze.ts) asks Nemotron for answers, [`api/investigate.ts`](api/investigate.ts) makes
+Investigate mode's three Nemotron calls (the plan, then the write-up and its check; the browser runs the
+steps in between) and its literature search, [`api/cofold.ts`](api/cofold.ts) runs Boltz-2 on NVIDIA's API,
+[`api/saved.ts`](api/saved.ts) keeps shared results in Cloudflare R2, and [`api/report.ts`](api/report.ts)
+emails error alerts. The sixth, [`api/quality.ts`](api/quality.ts), holds no key: it reads validation
+reports that browsers can't fetch themselves. Co-fold builds its input on the server: each chain's sequence from RCSB,
 cut to the residues the entry has coordinates for, with that chain as a structural template, since
 NVIDIA's service predicts without a sequence alignment. The answer comes back numbered like the
 entry and streams while Boltz-2 runs (usually 10–60 s).
@@ -147,7 +157,7 @@ cp .env.example .env.local   # then paste your NEBIUS_API_KEY into .env.local
 npm run dev                  # http://localhost:3000 (the landing page); the app is at /app
 ```
 
-`npm run dev` also serves `/api/analyze`, `/api/investigate` and `/api/cofold`: a small Vite plugin in [`vite.config.ts`](vite.config.ts)
+`npm run dev` also serves all six `/api/` routes: a small Vite plugin in [`vite.config.ts`](vite.config.ts)
 runs the Edge Functions in-process (streaming included), so local development matches production without the
 Vercel CLI. Co-fold appears only when `NVIDIA_NIM_KEY` is set (a free key from [build.nvidia.com](https://build.nvidia.com/mit/boltz2)).
 If something else already uses port 3000, run `npm run dev -- --port 3100`.
@@ -186,17 +196,19 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 ├── app.html, index.tsx, index.css  # The app, served at /app
 ├── App.tsx                         # Workspace layout, resizable panes, shortcuts, share-link loading
 ├── themes.ts, useTheme.ts          # Colour themes (CSS variables)
+├── useMedia.ts                     # Screen size and touch, for the phone layout
 ├── types.ts                        # Shared types
 ├── vite.config.ts                  # Vite, the two pages, theme CSS, dev bridge for the Edge Functions
 ├── vercel.json                     # /app serves app.html
 ├── tailwind.config.js, postcss.config.js  # Tailwind build
-├── docs/screenshot.jpg             # The image above
+├── docs/                           # The screenshots and the diagram in this README
 ├── api/
 │   ├── analyze.ts                  # Edge Function: Nemotron (Token Factory) call, prompt, validation, limits
-│   ├── investigate.ts              # Edge Function: Investigate mode's plan and write-up
+│   ├── investigate.ts              # Edge Function: Investigate mode's plan, literature search, write-up and check
 │   ├── cofold.ts                   # Edge Function: Boltz-2 input from RCSB, NVIDIA call, streaming, limits
+│   ├── saved.ts                    # Edge Function: shared results kept in Cloudflare R2 behind short links
 │   ├── report.ts                   # Edge Function: error reports from browsers, logged and emailed
-│   └── quality.ts                  # Edge Function: an entry's wwPDB validation summary
+│   └── quality.ts                  # Edge Function: an entry's wwPDB validation summary (holds no key)
 ├── components/
 │   ├── ReasoningEngine.tsx         # Chat, grounding and answer checks, tours, voice
 │   ├── chat/
@@ -208,12 +220,16 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 │   │   ├── ActionReceipt.tsx       # What a request changed in the workspace
 │   │   ├── AnswerChecks.tsx        # The line under an answer: what was checked, what was fixed first
 │   │   ├── InvestigationCard.tsx   # Investigate mode: the live checklist, then the cited answer
+│   │   ├── AnswerTour.tsx          # An answer's guided tour: playing it, its steps
 │   │   ├── EmptyState.tsx, PromptLibrary.tsx, ChatBackground.tsx
 │   │   └── TweakPanel.tsx          # Live design tweaks (local development, or ?tweaks)
 │   ├── ProteinViewer.tsx           # 3Dmol viewer, picking, toolbar, inspector, legends
 │   ├── workspace/
 │   │   ├── SequenceBar.tsx         # The sequence strip and selecting in it
 │   │   ├── StatusBar.tsx           # Identity, selection, hover readout
+│   │   ├── hoveredResidue.ts       # The residue under the pointer, read by the status bar alone
+│   │   ├── PaneSwitch.tsx          # On a phone: the Chat | 3D switch
+│   │   ├── PhoneSheet.tsx          # On a phone: tools and inspector in a sheet from the bottom
 │   │   ├── InspectorSection.tsx    # Inspector sections and controls
 │   │   ├── InspectorPanels.tsx     # Style, focus (within 5 Å) and layers
 │   │   ├── CommandPalette.tsx      # Ctrl+K: commands and residue search
@@ -231,6 +247,9 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 │   ├── CofoldMenu.tsx, CofoldCard.tsx  # Co-fold form (toolbar) and result (chat)
 │   ├── CompareCard.tsx             # Two co-folded molecules side by side (chat)
 │   ├── QuizCard.tsx, ShareButton.tsx, ThemeSwitcher.tsx, Dropdown.tsx
+│   ├── ErrorBoundary.tsx           # A crash shows a message in its part of the page, never a blank one
+│   ├── Explain.tsx                 # Terms that explain themselves on a press, not only on hover
+│   ├── icons.tsx                   # Tool icons shared by the toolbar, cards and headings
 └── services/
     ├── analysisService.ts          # Client for /api/analyze, answer cache, 429 retry
     ├── groundingService.ts         # UniProt/PDBe facts, answer checking and correction
@@ -257,6 +276,10 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
     ├── investigationPlan.ts        # Investigate mode: the tools, and checking the AI's plan and write-up
     ├── investigation.ts            # Investigate mode: running the steps, relating them in 3D
     ├── shareService.ts             # Share-link encoding and validation
+    ├── savedService.ts             # Saving a result behind a short link, and opening one
+    ├── errorReporter.ts, alertEmail.ts  # Error reports from the browser, and the alert email
+    ├── shape.ts                    # Checking data from outside (servers, saved links) field by field
+    ├── requestBody.ts, textCut.ts  # Size-capped request bodies; cutting text without splitting a number
     └── http.ts, mmcif.ts, structureFiles.ts, superpose.ts
 ```
 
@@ -265,9 +288,9 @@ The keys are never bundled into the browser: Vite only exposes `VITE_`-prefixed 
 The Edge Functions are the only places the keys live. They enforce:
 
 - **Origin check:** browsers can call the functions only from the app's own pages, so other websites can't spend its AI quota through their visitors. It doesn't stop a script, which can send any Origin it likes. For that, turn on Vercel's Bot Protection (the project's Firewall → Bot Management → Bot Protection, in Challenge mode; every plan has it): clients that aren't browsers are turned away before they reach the functions, visitors' browsers pass without seeing it, and if it ever stops a visitor's request the app asks them to reload the page.
-- **Rate limits:** 12 questions a minute per visitor; 6 investigations a minute (two LLM calls each); 12 co-folds per 10 minutes and 60 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
+- **Rate limits:** 12 questions a minute per visitor; 16 Investigate requests a minute (about four investigations, each a plan, a literature search, a write-up and a check); 12 co-folds per 10 minutes and 60 a day per visitor, plus a daily ceiling (`COFOLD_DAILY_LIMIT`). All of these count per server instance, and repeated co-folds are served from a cache. For hard global limits, add a Vercel Firewall rule or [`@upstash/ratelimit`](https://upstash.com/docs/redis/sdks/ratelimit-ts/overview).
 - **Input limits:** questions up to 2,000 characters (1,000 for an investigation, whose step results are capped at 7,000); the context and facts the browser sends are capped and sanitised. Co-fold takes up to 1,200 residues, 8 chains and a 60-residue pocket, PDB codes and SMILES only, and builds its own requests from them.
-- **Timeouts and clean errors:** an 18-second limit on the LLM call and 4 minutes on a prediction; upstream error details are logged, never returned.
+- **Timeouts and clean errors:** 18 seconds for an answer and for Investigate's plan, 23 for its write-up and check, and 4 minutes for a prediction; upstream error details are logged, never returned.
 - **Validated output:** every answer is checked against the expected shape before it reaches the page.
 - **Error reports:** when the app's own code fails in a browser, a short report goes to `api/report.ts`: the error's message, where in the code, the page's path (not a share link's content) and the build, and nothing else from the page. It is logged and, when set up, emailed to you: each kind of error once, then at most every 6 hours. Ten reports a minute per visitor, and at most 2 alert emails an hour for the whole site, however many server instances share the work: Resend keeps that count, since each email goes out under an idempotency key for its hour and slot. Addresses of other sites in a report are removed from the email.
 - **Quality:** `api/quality.ts` reads only the start of an entry's official validation report on files.wwpdb.org (browsers can't fetch it there) and returns its summary: PDB IDs only, the same origin check, 30 requests a minute per visitor. The app asks by GET (`/api/quality?id=4hhb`), so Vercel's CDN keeps each answer for a day and the browser for an hour (for an entry with no report yet, an hour and 10 minutes); refusals and failures are never cached.
@@ -287,7 +310,7 @@ it is git-ignored.
 |---|---|
 | **Done** | Grounded and checked answers · Investigate mode · Variant Lens · AlphaFold models and AlphaFill ligands · Confidence maps · Coverage · Quality · ESMFold · Foldseek · Pocket Radar · Interactions · Overlay · Partners · Boltz-2 co-folding into a chosen site · Comparing two molecules · The workspace: sequence, selection, inspector, command palette · Share links · Colour themes |
 | **Next** | Ranking a small set of molecules against one site |
-| **Later** | Mutation stability estimates · classroom features such as saved tours and quiz sets |
+| **Later** | Mutation stability estimates · classroom features such as saved tours and quiz sets · Investigate reading whole papers within Nemotron's 1M-token context, still quoting them word for word |
 
 ## Credits
 

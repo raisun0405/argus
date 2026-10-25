@@ -66,7 +66,8 @@ data = await (await call(PLAN)).json();
 check('AlphaFold: the accession comes from the gene symbol', data.structure === 'AF-P01116-F1' && uniprotQueries.some(q => q.includes('gene_exact:KRAS AND organism_id:9606')), `${data.structure} ${uniprotQueries[0] ?? ''}`);
 aiReply = () => completion('```json\n{"steps": [{"tool": "ligands"}]}\n```');
 data = await (await call(PLAN)).json();
-check('code fences tolerated', data.steps?.map(s => s.tool).join() === 'facts,ligands', JSON.stringify(data));
+// ...and the question (mutations near a pocket) puts its essential steps before the model's own
+check('code fences tolerated', data.steps?.map(s => s.tool).join() === 'facts,variants,pockets,ligands,relate', JSON.stringify(data.steps?.map(s => s.tool)));
 aiReply = () => completion('not json at all');
 res = await call(PLAN);
 check('invalid model JSON -> 502', res.status === 502);

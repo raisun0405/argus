@@ -56,6 +56,17 @@ check('nothing specific -> pockets and ligands', fb('Tell me about this protein'
 check('title from the question', P.fallbackPlan('what does p53 interact with?', '1TUP').title === 'What does p53 interact with' && P.fallbackPlan('x', '1TUP').structure === '1TUP');
 check('Motion is parked: a plan naming it drops the step', tools(P.normalizePlan({ steps: [{ tool: 'motion' }, { tool: 'ligands' }] }, '4AKE')) === 'facts ligands');
 
+console.log('\n[2b] withRequiredSteps: what the question makes essential, whatever the model planned');
+const kras = 'Are the disease mutations of KRAS near a druggable pocket?';
+const guarded = (steps, q = kras) => tools(P.normalizePlan({ steps: P.withRequiredSteps(steps, q) }, '4OBE', q));
+check('the plan the model was seen making (pockets only) gets the variants and the comparison', guarded([{ tool: 'facts' }, { tool: 'pockets' }]) === 'facts variants pockets relate(harmful,pocket1,5)', guarded([{ tool: 'facts' }, { tool: 'pockets' }]));
+check('a plan that has them already is unchanged', guarded([{ tool: 'variants' }, { tool: 'pockets' }, { tool: 'relate', a: 'harmful', b: 'pocket1', within: 6 }]) === 'facts variants pockets relate(harmful,pocket1,6)', guarded([{ tool: 'variants' }, { tool: 'pockets' }, { tool: 'relate', a: 'harmful', b: 'pocket1', within: 6 }]));
+check("its own comparison of the harmful positions is kept, not doubled", guarded([{ tool: 'variants' }, { tool: 'ligands' }, { tool: 'relate', a: 'harmful', b: 'ligand' }]) === 'facts pockets variants ligands relate(harmful,ligand,5)', guarded([{ tool: 'variants' }, { tool: 'ligands' }, { tool: 'relate', a: 'harmful', b: 'ligand' }]));
+check('mutations without pockets: only the variants step', guarded([{ tool: 'ligands' }], 'Which mutations of p53 cause cancer?') === 'facts variants ligands', guarded([{ tool: 'ligands' }], 'Which mutations of p53 cause cancer?'));
+check('a question about neither is left alone', guarded([{ tool: 'partners' }], 'What does p53 interact with?') === 'facts partners', guarded([{ tool: 'partners' }], 'What does p53 interact with?'));
+const full = guarded([{ tool: 'similar' }, { tool: 'partners' }, { tool: 'ligands' }, { tool: 'pockets' }, { tool: 'literature', query: 'KRAS' }]);
+check('a full plan: the essential steps survive the six-step limit', /variants/.test(full) && /relate\(harmful,pocket1/.test(full) && full.split(' ').length <= 6, full);
+
 console.log('\n[3] citations and normalizeWrite');
 check('[1, 3] and [2-3] split', P.cleanCitations('A [1, 3]. B [2-3].', 5) === 'A [1][3]. B [2][3].', P.cleanCitations('A [1, 3]. B [2-3].', 5));
 check('out of range dropped, repeats merged, space before punctuation closed', P.cleanCitations('A [9]. B [2][2] [2], C [0].', 5) === 'A. B [2], C.', P.cleanCitations('A [9]. B [2][2] [2], C [0].', 5));
