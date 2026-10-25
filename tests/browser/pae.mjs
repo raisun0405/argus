@@ -107,6 +107,38 @@ try {
   await sleep(400);
   check('Clear: per-residue confidence again, no map legend', (await b.ev(colourAt(340))) === (await b.ev(plddtAt(340))) && !(await b.ev(`!!document.querySelector('[data-pae-legend]')`)));
 
+  console.log('\n[by keyboard]');
+  const CODES = { ArrowRight: 39, ArrowLeft: 37, ArrowDown: 40, ArrowUp: 38, ' ': 32, Enter: 13, Escape: 27, Tab: 9 };
+  const press = async (key, { shift = false, times = 1 } = {}) => {
+    for (let i = 0; i < times; i++) for (const type of ['keyDown', 'keyUp']) {
+      await b.send('Input.dispatchKeyEvent', { type, key, code: key === ' ' ? 'Space' : key, windowsVirtualKeyCode: CODES[key], modifiers: shift ? 8 : 0 });
+    }
+    await sleep(60);
+  };
+  const keysLine = text('[data-pae-keys]');
+  // Reach the map with Tab, from whatever can take focus just before it
+  await b.ev(`(() => { const all = [...document.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')].filter(el => !el.disabled && el.getBoundingClientRect().width > 0); const map = document.querySelector('[data-pae-map]'); all[all.indexOf(map) - 1].focus(); return true; })()`);
+  await press('Tab');
+  check('Tab reaches the map, as an application that takes the arrow keys', await b.ev(`(() => { const m = document.querySelector('[data-pae-map]'); return document.activeElement === m && m.matches(':focus-visible') && m.getAttribute('role') === 'application' && m.getAttribute('aria-describedby') === document.querySelector('[data-pae-keys]').id; })()`));
+  check('a cursor on the first cell, said under the map', /^Residue 1 lined up on 1: [\d.]+ Å\. Space or Enter starts a block\.$/.test(await b.ev(keysLine)), await b.ev(keysLine));
+  await press('ArrowRight', { shift: true, times: 32 }); await press('ArrowRight', { times: 9 });
+  await press('ArrowDown', { shift: true, times: 14 }); await press('ArrowDown', { times: 9 });
+  check('arrows move it, Shift ten at a time', (await b.ev(keysLine)).startsWith('Residue 330 lined up on 150:'), await b.ev(keysLine));
+  await press(' ');
+  check('Space starts a block there', (await b.ev(keysLine)).includes('Move, then Space or Enter lights up the block'), await b.ev(keysLine));
+  await press('ArrowRight', { shift: true, times: 2 }); await press('ArrowDown', { shift: true, times: 10 });
+  await press('Enter');
+  await sleep(400);
+  const keyed = await b.ev(text('[data-pae-readout]'));
+  check('Enter lights it up: the same block the mouse drew (330–350 on 150–250)', keyed.includes('Residues 330–350') && keyed.includes('Residues 150–250') && keyed.includes('between them'), keyed.slice(0, 120));
+  check('...in 3D too, blue and orange', (await b.ev(colourAt(340))) === BLUE && (await b.ev(colourAt(200))) === ORANGE);
+  check('...and it is announced', (await b.ev(`(document.querySelector('[data-pae-readout] [aria-live]')?.textContent ?? '')`)).includes('Residues 330–350'));
+  await press(' '); await press('ArrowLeft', { times: 5 }); await press('Escape');
+  check('Esc drops a block not yet finished, and the lit one stays', (await b.ev(keysLine)).endsWith('Space or Enter starts a block.') && (await b.ev(text('[data-pae-readout]'))).includes('Residues 330–350'), await b.ev(keysLine));
+  check('the map is still focused after Esc (nothing around it closed)', await b.ev(`document.activeElement === document.querySelector('[data-pae-map]') && !!document.querySelector('[data-pae-panel]')`));
+  await press('Tab');
+  check('leaving the map takes the cursor off the page', await b.ev(`document.querySelector('[data-pae-keys]').classList.contains('sr-only')`));
+
   await b.click(`document.querySelector('[data-pae-part="98–291"]')`);
   await sleep(400);
   check('a part from the list lights up on its own (blue), the rest grey', (await b.ev(colourAt(200))) === BLUE && (await b.ev(colourAt(340))) !== ORANGE && (await b.ev(colourAt(340))) !== BLUE && (await b.ev(text('[data-pae-readout]'))).includes('within'));

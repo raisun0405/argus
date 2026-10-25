@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   arrangementWord, betweenMean, boxMean, paeAt, paeLut, paeParts, paeRgb, PART_CUTOFF, MIN_PART,
   type PaeBox, type PaeData,
@@ -81,7 +81,12 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
   const [drag, setDrag] = useState<PaeBox | null>(null);
   const [hover, setHover] = useState<{ s: number; a: number } | null>(null);
   const dragStart = useRef<{ s: number; a: number } | null>(null);
-  const dpr = typeof window === 'undefined' ? 1 : Math.min(3, window.devicePixelRatio || 1);
+  // The keyboard's way in: a cursor cell the arrows move; Space or Enter starts a block at it and
+  // finishes the block where the cursor has got to (a drag, in steps)
+  const [keyCursor, setKeyCursor] = useState<{ s: number; a: number } | null>(null);
+  const [keyAnchor, setKeyAnchor] = useState<{ s: number; a: number } | null>(null);
+  const keysId = useId();
+  const dpr =typeof window === 'undefined' ? 1 : Math.min(3, window.devicePixelRatio || 1);
   const size = Math.max(1, Math.round(width * dpr));
 
   useLayoutEffect(() => {
@@ -106,23 +111,33 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
     canvas.width = size;
     canvas.height = size;
     ctx.putImageData(image, 0, 0);
-    if (!shown) return;
-    const x0 = (shown.scored[0] / data.n) * size;
-    const x1 = ((shown.scored[1] + 1) / data.n) * size;
-    const y0 = (shown.aligned[0] / data.n) * size;
-    const y1 = ((shown.aligned[1] + 1) / data.n) * size;
-    const w = Math.max(2 * dpr, x1 - x0);
-    const h = Math.max(2 * dpr, y1 - y0);
     // A halo in the page's own background with a line in its text colour: both stand off the map's
     // greens in every theme (a fixed dark halo and white line vanished on the light ones)
     const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim().split(/\s+/).join(', ');
-    ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = `rgba(${token('--c-canvas') || '9, 9, 11'}, 0.85)`;
-    ctx.strokeRect(x0, y0, w, h);
-    ctx.lineWidth = 1.5 * dpr;
-    ctx.strokeStyle = `rgb(${token('--c-ink-strong') || '250, 250, 250'})`;
-    ctx.strokeRect(x0, y0, w, h);
-  }, [image, shown, size, dpr, data]);
+    const outline = (x: number, y: number, w: number, h: number, dashed = false) => {
+      ctx.setLineDash([]);
+      ctx.lineWidth = 3 * dpr;
+      ctx.strokeStyle = `rgba(${token('--c-canvas') || '9, 9, 11'}, 0.85)`;
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash(dashed ? [2 * dpr, 2 * dpr] : []);
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.strokeStyle = `rgb(${token('--c-ink-strong') || '250, 250, 250'})`;
+      ctx.strokeRect(x, y, w, h);
+    };
+    if (shown) {
+      const x0 = (shown.scored[0] / data.n) * size;
+      const x1 = ((shown.scored[1] + 1) / data.n) * size;
+      const y0 = (shown.aligned[0] / data.n) * size;
+      const y1 = ((shown.aligned[1] + 1) / data.n) * size;
+      outline(x0, y0, Math.max(2 * dpr, x1 - x0), Math.max(2 * dpr, y1 - y0));
+    }
+    // The keyboard's cursor: one cell, dashed, never smaller than a few pixels
+    if (keyCursor) {
+      const cell = size / data.n;
+      const side = Math.max(5 * dpr, cell);
+      outline((keyCursor.s + 0.5) * cell - side / 2, (keyCursor.a + 0.5) * cell - side / 2, side, side, true);
+    }
+  }, [image, shown, size, dpr, data, keyCursor]);
 
   // Ticks along both axes at a round step, about four of them
   const ticks = useMemo(() => {
@@ -171,6 +186,39 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
     aligned: [Math.min(p.a, q.a), Math.max(p.a, q.a)],
   });
 
+  // The keyboard: arrows move the cursor (Shift: ten at a time), Home and End along the row, Space or
+  // Enter starts a block and lights it up, Esc drops a block not yet finished
+  const cursorStart = () => keyCursor ?? (box ? { s: box.scored[0], a: box.aligned[0] } : { s: 0, a: 0 });
+  const moveCursor = (c: { s: number; a: number }) => {
+    const next = { s: Math.min(d.n - 1, Math.max(0, c.s)), a: Math.min(d.n - 1, Math.max(0, c.a)) };
+    setKeyCursor(next);
+    if (keyAnchor) setDrag(boxFrom(keyAnchor, next));
+  };
+  const onMapKey = (e: React.KeyboardEvent) => {
+    const at = cursorStart();
+    const step = e.shiftKey ? 10 : 1;
+    const arrows: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (arrows[e.key]) moveCursor({ s: at.s + arrows[e.key][0], a: at.a + arrows[e.key][1] });
+    else if (e.key === 'Home') moveCursor({ s: 0, a: at.a });
+    else if (e.key === 'End') moveCursor({ s: d.n - 1, a: at.a });
+    else if (e.key === ' ' || e.key === 'Enter') {
+      if (keyAnchor) {
+        setKeyAnchor(null);
+        setDrag(null);
+        onBox(boxFrom(keyAnchor, at));
+      } else {
+        setKeyAnchor(at);
+        setKeyCursor(at);
+        setDrag(boxFrom(at, at));
+      }
+    } else if (e.key === 'Escape' && keyAnchor) {
+      setKeyAnchor(null);
+      setDrag(null);
+    } else return; // Tab, or Esc with nothing started (which may close a phone's sheet), do what they do anywhere
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   // What the lit-up block says
   const lit = box;
   const diagonal = lit ? sameRange(lit.scored, lit.aligned) : false;
@@ -186,7 +234,7 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
   return (
     <div data-pae-panel data-pae-status="ready" className="space-y-3 min-w-0">
       <p className="text-[11px] touch:text-[13px] leading-snug text-ink-muted">
-        How sure AlphaFold is about where each part sits relative to the others. Dark green: confident; pale: a guess. Drag across the map to light up two stretches.
+        How sure AlphaFold is about where each part sits relative to the others. Dark green: confident; pale: a guess. Drag across the map<span className="touch:hidden">, or use the arrow keys on it,</span> to light up two stretches.
       </p>
 
       <div className="min-w-0">
@@ -201,11 +249,23 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
             <canvas
               ref={canvasRef}
               data-pae-map
-              role="img"
+              // An application: a screen reader hands it the arrow keys instead of reading on with them
+              role="application"
+              tabIndex={0}
               aria-label={`Confidence map of ${d.n} residues${parts.length ? `; confident parts ${parts.map(p => span([p.from, p.to], first)).join(', ')}` : ''}`}
+              aria-describedby={keysId}
               className="block w-full aspect-square rounded-sm cursor-crosshair select-none"
               style={{ touchAction: 'none', height: width || undefined }}
+              onKeyDown={onMapKey}
+              // Tabbing in shows the cursor; a click doesn't (the pointer has its own way)
+              onFocus={e => { if (e.currentTarget.matches(':focus-visible')) setKeyCursor(cursorStart()); }}
+              onBlur={() => {
+                setKeyCursor(null);
+                if (keyAnchor) { setKeyAnchor(null); setDrag(null); }
+              }}
               onPointerDown={e => {
+                setKeyCursor(null);
+                setKeyAnchor(null);
                 e.currentTarget.setPointerCapture(e.pointerId);
                 const cell = cellAt(e);
                 dragStart.current = cell;
@@ -238,6 +298,13 @@ const ConfidenceMapPanel: React.FC<ConfidenceMapPanelProps> = ({ state, first, b
           ))}
         </div>
         <p className="mt-1 ml-[34px] text-[10px] touch:text-[12px] text-ink-dim">Across: residue scored · Down: residue lined up on</p>
+        {/* For the keyboard: the keys (the map's description, heard on reaching it), then where the
+            cursor is, heard as it moves. On screen only while the cursor is */}
+        <p id={keysId} data-pae-keys aria-live="polite" className={keyCursor ? 'mt-1.5 ml-[34px] text-[11px] leading-snug text-ink-muted tabular-nums' : 'sr-only'}>
+          {keyCursor
+            ? `Residue ${keyCursor.s + first} lined up on ${keyCursor.a + first}: ${paeAt(d, keyCursor.a, keyCursor.s)} Å. ${keyAnchor ? 'Move, then Space or Enter lights up the block; Esc drops it.' : 'Space or Enter starts a block.'}`
+            : 'Arrow keys move over the map, ten at a time with Shift; Space or Enter starts a block, and again lights it up.'}
+        </p>
       </div>
 
       <div className="ml-[34px]">

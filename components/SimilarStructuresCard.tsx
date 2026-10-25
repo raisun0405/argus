@@ -87,7 +87,9 @@ const SimilarStructuresCard: React.FC<SimilarStructuresCardProps> = ({ result, o
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-[13px] font-semibold text-ink-strong leading-snug line-clamp-2">{hit.name}</span>
-                    <span className="flex-shrink-0 mt-0.5 text-[10px] font-semibold tabular-nums tracking-wide text-brand-fg">{hit.label}</span>
+                    {/* brand-text, the accent made for text: brand-fg is for icons and 3D highlights, and as small
+                        text it falls short in some themes (crimson's red is 3.1:1) */}
+                    <span className="flex-shrink-0 mt-0.5 text-[10px] font-semibold tabular-nums tracking-wide text-brand-text">{hit.label}</span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-ink-muted">
                     {hit.organism && <span className="italic">{hit.organism}</span>}
